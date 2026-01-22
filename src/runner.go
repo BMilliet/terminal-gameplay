@@ -1,12 +1,14 @@
 package src
 
 type Runner struct {
+	fileManager FileManagerInterface
 	utils       UtilsInterface
 	viewBuilder ViewBuilderInterface
 }
 
-func NewRunner(u UtilsInterface, b ViewBuilderInterface) *Runner {
+func NewRunner(fm FileManagerInterface, u UtilsInterface, b ViewBuilderInterface) *Runner {
 	return &Runner{
+		fileManager: fm,
 		utils:       u,
 		viewBuilder: b,
 	}
@@ -14,6 +16,11 @@ func NewRunner(u UtilsInterface, b ViewBuilderInterface) *Runner {
 
 func (r *Runner) Start() {
 	styles := DefaultStyles()
+
+	// Initialize application directory and config file
+	if err := r.fileManager.BasicSetup(); err != nil {
+		r.utils.HandleError(err, "Failed to initialize application")
+	}
 
 	// Example menu
 	choices := []ListItem{
