@@ -1,6 +1,7 @@
 package src
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -70,13 +71,28 @@ func (r *Runner) Start() {
 	}
 
 	page := parts[0]
-	label := parts[1]
 	value := parts[2]
 
-	// Just print the selected value
-	println()
-	println(styles.Text("Selected from ["+page+"]:", styles.TitleColor))
-	println(styles.Text("  Label: "+label, styles.PrimaryColor))
-	println(styles.Text("  Value: "+value, styles.SuccessColor))
-	println()
+	// Handle based on page type
+	switch page {
+	case "warp":
+		// Expand ~ to home directory
+		expandedPath := r.utils.ExpandPath(value)
+
+		// Write cd command to file
+		cmdFile := r.fileManager.(*FileManager).AppDir + "/cmd-exec"
+		command := fmt.Sprintf("cd %s", expandedPath)
+
+		if err := r.fileManager.WriteFileContent(cmdFile, command); err != nil {
+			r.utils.HandleError(err, "Failed to write command file")
+		}
+
+		println(styles.Text("✓ Command saved to: "+cmdFile, styles.SuccessColor))
+
+	case "commands":
+		println(styles.Text("\n⚠️  Commands execution not implemented yet", styles.ErrorColor))
+
+	case "notes":
+		println(styles.Text("\n⚠️  Notes clipboard not implemented yet", styles.ErrorColor))
+	}
 }

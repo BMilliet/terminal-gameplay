@@ -1,4 +1,4 @@
-.PHONY: help build run clean test fmt vet lint deps install dev
+.PHONY: help build run clean test fmt vet lint deps dev run-fish run-bash
 
 # Variables
 BINARY_NAME=terminal-gameplay
@@ -17,14 +17,11 @@ deps: ## Download and install dependencies
 build: ## Build the application
 	@echo "🏗️  Building $(BINARY_NAME)..."
 	go build -o $(BINARY_NAME) .
+	mv ${BINARY_NAME} ~/.terminal-gameplay/${BINARY_NAME}
 
 run: ## Run the application without building binary
 	@echo "🚀 Running in dev mode..."
 	go run main.go
-
-test: ## Run tests
-	@echo "🧪 Running tests..."
-	go test -v -race -coverprofile=coverage.out $(GO_PACKAGES)
 
 test-coverage: test ## Run tests with coverage report
 	@echo "📊 Generating coverage report..."
