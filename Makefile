@@ -18,11 +18,7 @@ build: ## Build the application
 	@echo "🏗️  Building $(BINARY_NAME)..."
 	go build -o $(BINARY_NAME) .
 
-run: build ## Build and run the application
-	@echo "🚀 Running $(BINARY_NAME)..."
-	./$(BINARY_NAME)
-
-dev: ## Run the application without building binary
+run: ## Run the application without building binary
 	@echo "🚀 Running in dev mode..."
 	go run main.go
 
