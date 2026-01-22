@@ -17,6 +17,7 @@ deps: ## Download and install dependencies
 build: ## Build the application
 	@echo "🏗️  Building $(BINARY_NAME)..."
 	go build -o $(BINARY_NAME) .
+	mkdir ~/.terminal-gameplay | true
 	mv ${BINARY_NAME} ~/.terminal-gameplay/${BINARY_NAME}
 
 run: ## Run the application without building binary
