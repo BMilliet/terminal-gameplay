@@ -1,4 +1,4 @@
-.PHONY: help build run clean test fmt vet lint deps dev run-fish run-bash
+.PHONY: help build run fmt deps
 
 # Variables
 BINARY_NAME=terminal-gameplay
@@ -23,32 +23,11 @@ run: ## Run the application without building binary
 	@echo "🚀 Running in dev mode..."
 	go run main.go
 
-test-coverage: test ## Run tests with coverage report
-	@echo "📊 Generating coverage report..."
-	go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report generated: coverage.html"
-
 fmt: ## Format Go code
 	@echo "✨ Formatting code..."
 	gofmt -s -w $(GO_FILES)
 	go fmt $(GO_PACKAGES)
 
-vet: ## Run go vet
-	@echo "🔍 Running go vet..."
-	go vet $(GO_PACKAGES)
-
 lint: fmt vet ## Run linters (fmt + vet)
 	@echo "✅ Linting complete"
 
-clean: ## Clean build artifacts
-	@echo "🧹 Cleaning..."
-	rm -f $(BINARY_NAME)
-	rm -f coverage.out coverage.html
-	go clean
-
-all: clean deps lint build ## Clean, install deps, lint and build
-
-watch: ## Watch for changes and rebuild (requires entr)
-	@echo "👀 Watching for changes..."
-	@command -v entr >/dev/null 2>&1 || { echo "entr not installed. Install with: brew install entr"; exit 1; }
-	find . -name '*.go' | entr -r make run
