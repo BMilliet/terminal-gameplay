@@ -139,22 +139,52 @@ func (m MultiPageViewModel) View() string {
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, tabViews...))
 	b.WriteString("\n\n")
 
-	// Current page items
+	// Current page items with borders
 	items := m.getCurrentList()
 	if len(items) == 0 {
 		b.WriteString(m.styles.FooterStyle.Render("  No items configured\n"))
 	} else {
 		for i, item := range items {
-			cursor := " "
+			// Style for item box
+			var itemBox lipgloss.Style
 			if m.cursor == i {
-				cursor = ">"
+				// Selected item - with border
+				itemBox = lipgloss.NewStyle().
+					Border(lipgloss.RoundedBorder()).
+					BorderForeground(m.styles.SelectedTitleColor).
+					Padding(0, 1).
+					Width(70)
+			} else {
+				// Unselected item - subtle border
+				itemBox = lipgloss.NewStyle().
+					Border(lipgloss.RoundedBorder()).
+					BorderForeground(m.styles.BorderColor).
+					Padding(0, 1).
+					Width(70)
 			}
 
+			// Title (label) - bold and prominent
+			titleStyle := lipgloss.NewStyle().Bold(true)
 			if m.cursor == i {
-				b.WriteString(m.styles.SelectedItemStyle.Render(fmt.Sprintf("%s %s\n  %s\n", cursor, item.T, item.D)))
+				titleStyle = titleStyle.Foreground(m.styles.SelectedTitleColor)
 			} else {
-				b.WriteString(fmt.Sprintf("%s %s\n  %s\n", cursor, item.T, m.styles.FooterStyle.Render(item.D)))
+				titleStyle = titleStyle.Foreground(m.styles.TitleColor)
 			}
+
+			// Value - smaller and wrapped
+			valueStyle := lipgloss.NewStyle().
+				Foreground(m.styles.FooterColor).
+				Width(66). // Slightly less than box width for padding
+				Italic(true)
+
+			// Build content
+			content := fmt.Sprintf("%s\n%s",
+				titleStyle.Render(item.T),
+				valueStyle.Render(item.D),
+			)
+
+			b.WriteString(itemBox.Render(content))
+			b.WriteString("\n")
 		}
 	}
 
