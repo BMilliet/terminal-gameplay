@@ -91,6 +91,11 @@ func (r *Runner) Start() {
 		println(styles.Text("\n⚠️  Commands execution not implemented yet", styles.ErrorColor))
 
 	case "notes":
-		println(styles.Text("\n⚠️  Notes clipboard not implemented yet", styles.ErrorColor))
+		// Copy value to clipboard
+		if err := r.utils.CopyToClipboard(value); err != nil {
+			r.utils.HandleError(err, "Failed to copy to clipboard")
+		}
+		
+		println(styles.Text("✓ Copied to clipboard: "+value, styles.SuccessColor))
 	}
 }
