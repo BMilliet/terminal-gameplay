@@ -37,10 +37,10 @@ func DefaultStyles() *Styles {
 	s.ErrorColor = lipgloss.Color("#FF99B8")
 	s.SuccessColor = lipgloss.Color("#B4F8D5")
 
-	s.BorderColor = s.AccentColor
+	s.BorderColor = lipgloss.Color("#4A4A4A")
 	s.FooterColor = s.SuccessColor
 	s.TitleColor = lipgloss.Color("#DAC3E9")
-	s.SelectedTitleColor = s.AccentColor
+	s.SelectedTitleColor = lipgloss.Color("#00FF9F") // Bright cyan/green for selection
 
 	s.InputField = lipgloss.NewStyle().
 		BorderForeground(s.BorderColor).

@@ -148,12 +148,13 @@ func (m MultiPageViewModel) View() string {
 			// Style for item box
 			var itemBox lipgloss.Style
 			if m.cursor == i {
-				// Selected item - with border
+				// Selected item - with bright border and indented
 				itemBox = lipgloss.NewStyle().
 					Border(lipgloss.RoundedBorder()).
 					BorderForeground(m.styles.SelectedTitleColor).
 					Padding(0, 1).
-					Width(70)
+					Width(70).
+					MarginLeft(2) // Indent selected item
 			} else {
 				// Unselected item - subtle border
 				itemBox = lipgloss.NewStyle().
