@@ -87,8 +87,6 @@ func (r *Runner) Start() {
 			r.utils.HandleError(err, "Failed to write command file")
 		}
 
-		println(styles.Text("✓ Command saved to: "+cmdFile, styles.SuccessColor))
-
 	case "commands":
 		println(styles.Text("\n⚠️  Commands execution not implemented yet", styles.ErrorColor))
 
