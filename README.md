@@ -123,3 +123,27 @@ On first run, `tg` creates a configuration file at `~/.terminal-gameplay/config.
 }
 ```
 
+#### Visual Dividers
+
+You can organize your lists with visual dividers to separate items into sections. Use keys starting with `div` (e.g., `div`, `div1`, `div2`, etc.) to create dividers:
+
+```json
+{
+  "warp": {
+    "home": "~",
+    "div": "⚙️ work projects",
+    "frontend": "~/workspace/frontend-app",
+    "backend": "~/workspace/backend-api",
+    "div2": "🛠️ personal",
+    "dotfiles": "~/dotfiles",
+    "scripts": "~/scripts"
+  }
+}
+```
+
+**Features:**
+- Dividers are displayed as subtle horizontal separators with italic text
+- They cannot be selected - navigation automatically skips them
+- Use any text after `div` key to identify different dividers (since JSON doesn't allow duplicate keys)
+- Great for grouping related items visually
+
