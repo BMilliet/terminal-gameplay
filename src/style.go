@@ -25,6 +25,7 @@ type Styles struct {
 	AccentColor    lipgloss.Color
 	ErrorColor     lipgloss.Color
 	SuccessColor   lipgloss.Color
+	DividerColor   lipgloss.Color
 }
 
 func DefaultStyles() *Styles {
@@ -36,6 +37,7 @@ func DefaultStyles() *Styles {
 	s.AccentColor = lipgloss.Color("#E3B5BF")
 	s.ErrorColor = lipgloss.Color("#FF99B8")
 	s.SuccessColor = lipgloss.Color("#B4F8D5")
+	s.DividerColor = lipgloss.Color("#6B6B6B") // Subtle gray for dark terminals
 
 	s.BorderColor = lipgloss.Color("#4A4A4A")
 	s.FooterColor = s.SuccessColor

@@ -10,7 +10,9 @@ import (
 )
 
 type ListItem struct {
-	T, D string
+	T     string
+	D     string
+	IsDiv bool
 }
 
 func (i ListItem) Title() string       { return i.T }

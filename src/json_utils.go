@@ -29,9 +29,12 @@ func ConfigItemsToListItems(items OrderedMap) []ListItem {
 	listItems := []ListItem{}
 	for _, key := range items.Keys {
 		if value, ok := items.Values[key]; ok {
+			// Check if it's a divider (key starts with "div")
+			isDiv := len(key) >= 3 && key[:3] == "div"
 			listItems = append(listItems, ListItem{
-				T: key,
-				D: value,
+				T:     key,
+				D:     value,
+				IsDiv: isDiv,
 			})
 		}
 	}

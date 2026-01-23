@@ -51,7 +51,7 @@ func NewMultiPageViewModel(config *ConfigDTO) MultiPageViewModel {
 		currentPage = availPages[0]
 	}
 
-	return MultiPageViewModel{
+	m := MultiPageViewModel{
 		config:        config,
 		currentPage:   currentPage,
 		warpList:      ConfigItemsToListItems(config.Warp),
@@ -61,10 +61,18 @@ func NewMultiPageViewModel(config *ConfigDTO) MultiPageViewModel {
 		pageIndex:     0,
 		cursor:        0,
 		viewportStart: 0,
-		maxVisible:    5, // Show max 5 items at a time
+		maxVisible:    10, // Show max 10 items at a time
 		quitting:      false,
 		styles:        DefaultStyles(),
 	}
+
+	// Move cursor to first non-divider item
+	items := m.getCurrentList()
+	for m.cursor < len(items) && items[m.cursor].IsDiv {
+		m.cursor++
+	}
+
+	return m
 }
 
 func (m MultiPageViewModel) Init() tea.Cmd {
@@ -87,6 +95,11 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentPage = m.availPages[m.pageIndex]
 				m.cursor = 0
 				m.viewportStart = 0
+				// Skip dividers at start of page
+				items := m.getCurrentList()
+				for m.cursor < len(items) && items[m.cursor].IsDiv {
+					m.cursor++
+				}
 			}
 
 		case "right", "l":
@@ -96,11 +109,21 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentPage = m.availPages[m.pageIndex]
 				m.cursor = 0
 				m.viewportStart = 0
+				// Skip dividers at start of page
+				items := m.getCurrentList()
+				for m.cursor < len(items) && items[m.cursor].IsDiv {
+					m.cursor++
+				}
 			}
 
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
+				// Skip dividers when navigating up
+				items := m.getCurrentList()
+				for m.cursor > 0 && items[m.cursor].IsDiv {
+					m.cursor--
+				}
 				// Scroll up if cursor moves above viewport with offset
 				if m.cursor < m.viewportStart+2 && m.viewportStart > 0 {
 					m.viewportStart--
@@ -111,6 +134,10 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			items := m.getCurrentList()
 			if m.cursor < len(items)-1 {
 				m.cursor++
+				// Skip dividers when navigating down
+				for m.cursor < len(items)-1 && items[m.cursor].IsDiv {
+					m.cursor++
+				}
 				// Scroll down if cursor moves below viewport with offset
 				if m.cursor >= m.viewportStart+m.maxVisible-2 {
 					m.viewportStart++
@@ -173,6 +200,21 @@ func (m MultiPageViewModel) View() string {
 		// Render only visible items
 		for i := m.viewportStart; i < visibleEnd; i++ {
 			item := items[i]
+			
+			// Check if this is a divider
+			if item.IsDiv {
+				// Render divider with subtle styling
+				dividerText := fmt.Sprintf("─── %s ───", item.D)
+				dividerStyle := lipgloss.NewStyle().
+					Foreground(m.styles.DividerColor).
+					Italic(true).
+					Width(70).
+					Align(lipgloss.Center)
+				b.WriteString(dividerStyle.Render(dividerText))
+				b.WriteString("\n")
+				continue
+			}
+			
 			// Style for item box
 			var itemBox lipgloss.Style
 			if m.cursor == i {
