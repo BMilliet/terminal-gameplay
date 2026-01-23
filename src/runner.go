@@ -95,7 +95,7 @@ func (r *Runner) Start() {
 		if err := r.utils.CopyToClipboard(value); err != nil {
 			r.utils.HandleError(err, "Failed to copy to clipboard")
 		}
-		
+
 		println(styles.Text("✓ Copied to clipboard: "+value, styles.SuccessColor))
 	}
 }

@@ -39,7 +39,7 @@ func (om *OrderedMap) UnmarshalJSON(data []byte) error {
 
 	// Unmarshal a third time using decoder to preserve order
 	dec := json.NewDecoder(bytes.NewReader(data))
-	
+
 	// Read opening brace
 	t, err := dec.Token()
 	if err != nil {
@@ -58,7 +58,7 @@ func (om *OrderedMap) UnmarshalJSON(data []byte) error {
 		}
 		key := t.(string)
 		keys = append(keys, key)
-		
+
 		// Read value (skip it, we already have it in the map)
 		var value string
 		if err := dec.Decode(&value); err != nil {
@@ -76,23 +76,23 @@ func (om OrderedMap) MarshalJSON() ([]byte, error) {
 	if om.Values == nil {
 		return []byte("{}"), nil
 	}
-	
+
 	var buf bytes.Buffer
 	buf.WriteString("{")
-	
+
 	for i, key := range om.Keys {
 		if i > 0 {
 			buf.WriteString(",")
 		}
-		
+
 		keyJSON, _ := json.Marshal(key)
 		valueJSON, _ := json.Marshal(om.Values[key])
-		
+
 		buf.Write(keyJSON)
 		buf.WriteString(":")
 		buf.Write(valueJSON)
 	}
-	
+
 	buf.WriteString("}")
 	return buf.Bytes(), nil
 }

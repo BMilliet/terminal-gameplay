@@ -18,17 +18,19 @@ const (
 )
 
 type MultiPageViewModel struct {
-	config      *ConfigDTO
-	currentPage PageType
-	warpList    []ListItem
-	commandList []ListItem
-	notesList   []ListItem
-	availPages  []PageType
-	pageIndex   int
-	cursor      int
-	selected    *string
-	quitting    bool
-	styles      *Styles
+	config        *ConfigDTO
+	currentPage   PageType
+	warpList      []ListItem
+	commandList   []ListItem
+	notesList     []ListItem
+	availPages    []PageType
+	pageIndex     int
+	cursor        int
+	viewportStart int // First visible item index for scrolling
+	maxVisible    int // Maximum items to show at once
+	selected      *string
+	quitting      bool
+	styles        *Styles
 }
 
 func NewMultiPageViewModel(config *ConfigDTO) MultiPageViewModel {
@@ -50,16 +52,18 @@ func NewMultiPageViewModel(config *ConfigDTO) MultiPageViewModel {
 	}
 
 	return MultiPageViewModel{
-		config:      config,
-		currentPage: currentPage,
-		warpList:    ConfigItemsToListItems(config.Warp),
-		commandList: ConfigItemsToListItems(config.Commands),
-		notesList:   ConfigItemsToListItems(config.Notes),
-		availPages:  availPages,
-		pageIndex:   0,
-		cursor:      0,
-		quitting:    false,
-		styles:      DefaultStyles(),
+		config:        config,
+		currentPage:   currentPage,
+		warpList:      ConfigItemsToListItems(config.Warp),
+		commandList:   ConfigItemsToListItems(config.Commands),
+		notesList:     ConfigItemsToListItems(config.Notes),
+		availPages:    availPages,
+		pageIndex:     0,
+		cursor:        0,
+		viewportStart: 0,
+		maxVisible:    5, // Show max 5 items at a time
+		quitting:      false,
+		styles:        DefaultStyles(),
 	}
 }
 
@@ -82,6 +86,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pageIndex--
 				m.currentPage = m.availPages[m.pageIndex]
 				m.cursor = 0
+				m.viewportStart = 0
 			}
 
 		case "right", "l":
@@ -90,17 +95,26 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pageIndex++
 				m.currentPage = m.availPages[m.pageIndex]
 				m.cursor = 0
+				m.viewportStart = 0
 			}
 
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
+				// Scroll up if cursor moves above viewport with offset
+				if m.cursor < m.viewportStart+2 && m.viewportStart > 0 {
+					m.viewportStart--
+				}
 			}
 
 		case "down", "j":
 			items := m.getCurrentList()
 			if m.cursor < len(items)-1 {
 				m.cursor++
+				// Scroll down if cursor moves below viewport with offset
+				if m.cursor >= m.viewportStart+m.maxVisible-2 {
+					m.viewportStart++
+				}
 			}
 
 		case "enter":
@@ -144,7 +158,21 @@ func (m MultiPageViewModel) View() string {
 	if len(items) == 0 {
 		b.WriteString(m.styles.FooterStyle.Render("  No items configured\n"))
 	} else {
-		for i, item := range items {
+		// Calculate visible range
+		visibleEnd := m.viewportStart + m.maxVisible
+		if visibleEnd > len(items) {
+			visibleEnd = len(items)
+		}
+
+		// Show scroll indicator if there are more items above
+		if m.viewportStart > 0 {
+			b.WriteString(m.styles.FooterStyle.Render("  ⬆ More items above..."))
+			b.WriteString("\n\n")
+		}
+
+		// Render only visible items
+		for i := m.viewportStart; i < visibleEnd; i++ {
+			item := items[i]
 			// Style for item box
 			var itemBox lipgloss.Style
 			if m.cursor == i {
@@ -187,6 +215,12 @@ func (m MultiPageViewModel) View() string {
 			b.WriteString(itemBox.Render(content))
 			b.WriteString("\n")
 		}
+
+		// Show scroll indicator if there are more items below
+		if visibleEnd < len(items) {
+			b.WriteString("\n")
+			b.WriteString(m.styles.FooterStyle.Render("  ⬇ More items below..."))
+		}
 	}
 
 	// Footer
@@ -214,17 +248,26 @@ func (m MultiPageViewModel) getCurrentList() []ListItem {
 }
 
 func (m MultiPageViewModel) getPageName() string {
-	return m.getPageNameByType(m.currentPage)
-}
-
-func (m MultiPageViewModel) getPageNameByType(page PageType) string {
-	switch page {
+	switch m.currentPage {
 	case WarpPage:
 		return "warp"
 	case CommandsPage:
 		return "commands"
 	case NotesPage:
 		return "notes"
+	default:
+		return ""
+	}
+}
+
+func (m MultiPageViewModel) getPageNameByType(page PageType) string {
+	switch page {
+	case WarpPage:
+		return "warp ⚡️"
+	case CommandsPage:
+		return "commands 🎮"
+	case NotesPage:
+		return "notes ✏️"
 	default:
 		return ""
 	}
