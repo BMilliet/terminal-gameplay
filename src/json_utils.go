@@ -24,14 +24,16 @@ func ToJSON[T any](data T) (string, error) {
 	return string(bytes), nil
 }
 
-// ConfigItemsToListItems converts config items to list items
-func ConfigItemsToListItems(items map[string]string) []ListItem {
+// ConfigItemsToListItems converts config items to list items maintaining JSON order
+func ConfigItemsToListItems(items OrderedMap) []ListItem {
 	listItems := []ListItem{}
-	for label, value := range items {
-		listItems = append(listItems, ListItem{
-			T: label,
-			D: value,
-		})
+	for _, key := range items.Keys {
+		if value, ok := items.Values[key]; ok {
+			listItems = append(listItems, ListItem{
+				T: key,
+				D: value,
+			})
+		}
 	}
 	return listItems
 }
@@ -39,14 +41,17 @@ func ConfigItemsToListItems(items map[string]string) []ListItem {
 // GetDefaultConfig returns default configuration
 func GetDefaultConfig() *ConfigDTO {
 	return &ConfigDTO{
-		Warp: map[string]string{
-			"home": "~",
+		Warp: OrderedMap{
+			Keys:   []string{"home"},
+			Values: map[string]string{"home": "~"},
 		},
-		Commands: map[string]string{
-			"example": "echo 'Add your commands in config.json'",
+		Commands: OrderedMap{
+			Keys:   []string{"example"},
+			Values: map[string]string{"example": "echo 'Add your commands in config.json'"},
 		},
-		Notes: map[string]string{
-			"example": "Add your notes in config.json",
+		Notes: OrderedMap{
+			Keys:   []string{"example"},
+			Values: map[string]string{"example": "Add your notes in config.json"},
 		},
 	}
 }

@@ -34,13 +34,13 @@ type MultiPageViewModel struct {
 func NewMultiPageViewModel(config *ConfigDTO) MultiPageViewModel {
 	// Build list of available pages (non-empty)
 	availPages := []PageType{}
-	if len(config.Warp) > 0 {
+	if len(config.Warp.Keys) > 0 {
 		availPages = append(availPages, WarpPage)
 	}
-	if len(config.Commands) > 0 {
+	if len(config.Commands.Keys) > 0 {
 		availPages = append(availPages, CommandsPage)
 	}
-	if len(config.Notes) > 0 {
+	if len(config.Notes.Keys) > 0 {
 		availPages = append(availPages, NotesPage)
 	}
 

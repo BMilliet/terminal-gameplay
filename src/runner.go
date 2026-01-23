@@ -52,7 +52,7 @@ func (r *Runner) Start() {
 	}
 
 	// Check if all pages are empty
-	if len(config.Warp) == 0 && len(config.Commands) == 0 && len(config.Notes) == 0 {
+	if len(config.Warp.Keys) == 0 && len(config.Commands.Keys) == 0 && len(config.Notes.Keys) == 0 {
 		println(styles.Text("\n⚠️  All pages are empty!", styles.ErrorColor))
 		println(styles.Text("\nPlease edit your config file:", styles.TitleColor))
 		println(styles.Text("  "+r.fileManager.(*FileManager).ConfigPath, styles.FooterColor))
