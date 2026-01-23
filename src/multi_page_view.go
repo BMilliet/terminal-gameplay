@@ -117,16 +117,29 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "up", "k":
+			items := m.getCurrentList()
 			if m.cursor > 0 {
 				m.cursor--
 				// Skip dividers when navigating up
-				items := m.getCurrentList()
 				for m.cursor > 0 && items[m.cursor].IsDiv {
 					m.cursor--
 				}
 				// Scroll up if cursor moves above viewport with offset
 				if m.cursor < m.viewportStart+2 && m.viewportStart > 0 {
 					m.viewportStart--
+				}
+			} else {
+				// Wrap to last item
+				m.cursor = len(items) - 1
+				// Skip dividers from the end
+				for m.cursor > 0 && items[m.cursor].IsDiv {
+					m.cursor--
+				}
+				// Adjust viewport to show the last item
+				if len(items) > m.maxVisible {
+					m.viewportStart = len(items) - m.maxVisible
+				} else {
+					m.viewportStart = 0
 				}
 			}
 
@@ -142,6 +155,15 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor >= m.viewportStart+m.maxVisible-2 {
 					m.viewportStart++
 				}
+			} else {
+				// Wrap to first item
+				m.cursor = 0
+				// Skip dividers from the start
+				for m.cursor < len(items)-1 && items[m.cursor].IsDiv {
+					m.cursor++
+				}
+				// Reset viewport to top
+				m.viewportStart = 0
 			}
 
 		case "enter":
