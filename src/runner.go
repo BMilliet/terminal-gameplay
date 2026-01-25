@@ -96,6 +96,6 @@ func (r *Runner) Start() {
 			r.utils.HandleError(err, "Failed to copy to clipboard")
 		}
 
-		println(styles.Text("✓ Copied to clipboard: "+value, styles.SuccessColor))
+		println(styles.Text("✓ Copied to clipboard: "+value, styles.AquamarineColor))
 	}
 }
