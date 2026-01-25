@@ -195,7 +195,7 @@ func (m MultiPageViewModel) View() string {
 		if page == m.currentPage {
 			tabViews = append(tabViews, m.styles.Text(fmt.Sprintf("[ %s ]", pageName), m.styles.SelectedTitleColor))
 		} else {
-			tabViews = append(tabViews, m.styles.Text(fmt.Sprintf("  %s  ", pageName), m.styles.TitleColor))
+			tabViews = append(tabViews, m.styles.Text(fmt.Sprintf("  %s  ", pageName), m.styles.MutedTitleColor))
 		}
 	}
 	b.WriteString("\n")
@@ -251,22 +251,25 @@ func (m MultiPageViewModel) View() string {
 				// Unselected item - subtle border
 				itemBox = lipgloss.NewStyle().
 					Border(lipgloss.RoundedBorder()).
-					BorderForeground(m.styles.BorderColor).
+					BorderForeground(m.styles.MutedBorderColor).
 					Padding(0, 1).
 					Width(70)
 			}
 
 			// Title (label) - bold and prominent
 			titleStyle := lipgloss.NewStyle().Bold(true)
+			var valueColor lipgloss.Color
 			if m.cursor == i {
 				titleStyle = titleStyle.Foreground(m.styles.SelectedTitleColor)
+				valueColor = m.styles.FooterColor
 			} else {
-				titleStyle = titleStyle.Foreground(m.styles.TitleColor)
+				titleStyle = titleStyle.Foreground(m.styles.MutedTitleColor)
+				valueColor = m.styles.MutedTitleColor
 			}
 
 			// Value - smaller and wrapped
 			valueStyle := lipgloss.NewStyle().
-				Foreground(m.styles.FooterColor).
+				Foreground(valueColor).
 				Width(66). // Slightly less than box width for padding
 				Italic(true)
 

@@ -20,29 +20,40 @@ type Styles struct {
 	HelpStyle         lipgloss.Style
 	SelectedItemStyle lipgloss.Style
 
-	PrimaryColor   lipgloss.Color
-	SecondaryColor lipgloss.Color
-	AccentColor    lipgloss.Color
-	ErrorColor     lipgloss.Color
-	SuccessColor   lipgloss.Color
-	DividerColor   lipgloss.Color
+	PeachColor      lipgloss.Color
+	CoralColor      lipgloss.Color
+	OrchidColor     lipgloss.Color
+	ThistleColor    lipgloss.Color
+	NyanzaColor     lipgloss.Color
+	AquamarineColor lipgloss.Color
+	ErrorColor      lipgloss.Color
+	DividerColor    lipgloss.Color
+
+	// Muted colors for unselected items
+	MutedTitleColor  lipgloss.Color
+	MutedBorderColor lipgloss.Color
 }
 
 func DefaultStyles() *Styles {
 	s := new(Styles)
 
-	// Color palette
-	s.PrimaryColor = lipgloss.Color("#F2B391")
-	s.SecondaryColor = lipgloss.Color("#F39194")
-	s.AccentColor = lipgloss.Color("#E3B5BF")
+	s.PeachColor = lipgloss.Color("#F2B391")
+	s.CoralColor = lipgloss.Color("#F39194")
+	s.OrchidColor = lipgloss.Color("#E3B5BF")
+	s.ThistleColor = lipgloss.Color("#DAC3E9")
+	s.NyanzaColor = lipgloss.Color("#E9F2D0")
 	s.ErrorColor = lipgloss.Color("#FF99B8")
-	s.SuccessColor = lipgloss.Color("#B4F8D5")
-	s.DividerColor = lipgloss.Color("#6B6B6B") // Subtle gray for dark terminals
+	s.AquamarineColor = lipgloss.Color("#B4F8D5")
+	s.DividerColor = lipgloss.Color("#6B6B6B")
 
-	s.BorderColor = lipgloss.Color("#4A4A4A")
-	s.FooterColor = s.SuccessColor
-	s.TitleColor = lipgloss.Color("#DAC3E9")
-	s.SelectedTitleColor = lipgloss.Color("#00FF9F") // Bright cyan/green for selection
+	// Muted colors for unselected items
+	s.MutedTitleColor = lipgloss.Color("#6B6B6B")  // Subtle gray
+	s.MutedBorderColor = lipgloss.Color("#3A3A3A") // Very dark gray
+
+	s.BorderColor = s.OrchidColor
+	s.FooterColor = s.NyanzaColor
+	s.TitleColor = s.ThistleColor
+	s.SelectedTitleColor = s.OrchidColor
 
 	s.InputField = lipgloss.NewStyle().
 		BorderForeground(s.BorderColor).
