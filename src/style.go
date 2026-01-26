@@ -32,6 +32,20 @@ type Styles struct {
 	// Muted colors for unselected items
 	MutedTitleColor  lipgloss.Color
 	MutedBorderColor lipgloss.Color
+
+	// Search and highlight colors
+	SearchBoxColor   lipgloss.Color
+	SearchTextColor  lipgloss.Color
+	HighlightBgColor lipgloss.Color
+	HighlightFgColor lipgloss.Color
+
+	// Settings colors
+	SettingsTitleColor         lipgloss.Color
+	SettingsSelectedTitleColor lipgloss.Color
+	SettingsBorderColor        lipgloss.Color
+	SettingsValueColor         lipgloss.Color
+	SettingsEnabledColor       lipgloss.Color
+	SettingsDisabledColor      lipgloss.Color
 }
 
 func DefaultStyles() *Styles {
@@ -49,6 +63,20 @@ func DefaultStyles() *Styles {
 	// Muted colors for unselected items
 	s.MutedTitleColor = lipgloss.Color("#6B6B6B")  // Subtle gray
 	s.MutedBorderColor = lipgloss.Color("#3A3A3A") // Very dark gray
+
+	// Search and highlight colors
+	s.SearchBoxColor = s.AquamarineColor
+	s.SearchTextColor = s.ThistleColor
+	s.HighlightBgColor = lipgloss.Color("#FFD700") // Gold/yellow
+	s.HighlightFgColor = lipgloss.Color("#1A1A1A") // Dark text for readability
+
+	// Settings colors - slightly desaturated/grayed versions of main palette
+	s.SettingsTitleColor = lipgloss.Color("#9B8B9F")         // Muted purple-gray (less saturated Orchid/Thistle)
+	s.SettingsSelectedTitleColor = lipgloss.Color("#C5B0C9") // Soft purple-gray (grayed Orchid)
+	s.SettingsBorderColor = lipgloss.Color("#7A6B7E")        // Medium purple-gray
+	s.SettingsValueColor = lipgloss.Color("#ADA0B0")         // Light purple-gray
+	s.SettingsEnabledColor = lipgloss.Color("#A8DDA8")       // Soft pastel green (harmonizes with Nyanza/Aquamarine)
+	s.SettingsDisabledColor = lipgloss.Color("#E8999D")      // Soft pastel red (harmonizes with Coral/ErrorColor)
 
 	s.BorderColor = s.OrchidColor
 	s.FooterColor = s.NyanzaColor

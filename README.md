@@ -102,7 +102,20 @@ tg
 This will launch the interactive TUI where you can:
 
 1. **Navigate** using arrow keys or `j`/`k`
-2. **Select** the main section (Warp, Commands, or Notes)
+2. **Switch pages** using left/right arrows or `h`/`l`
+3. **Search** by pressing `/` to activate fuzzy-find mode
+4. **Select** an item by pressing Enter
+
+### Fuzzy Find Search
+
+Press `/` to activate the fuzzy-find search mode. This feature allows you to quickly filter items by typing:
+
+- **Type to search**: Characters you type will fuzzy-match against both item labels and values
+- **Visual feedback**: Matching characters are highlighted in yellow with dark text for easy reading
+- **Exit search**: Press `Esc` to close the search and return to normal navigation
+- **Select from results**: Use arrow keys to navigate filtered results and Enter to select
+
+The fuzzy-find searches through both the item title/label and its value, making it easy to find what you need quickly.
 
 ### Configuration File
 
