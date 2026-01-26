@@ -12,17 +12,23 @@ import (
 type PageType int
 
 const (
-	WarpPage PageType = iota
+	FrequentPage PageType = iota
+	WarpPage
 	CommandsPage
 	NotesPage
+	SettingsPage
 )
 
 type MultiPageViewModel struct {
 	config        *ConfigDTO
+	options       *OptionsDTO
+	warpFrequency *WarpFrequencyDTO
 	currentPage   PageType
+	frequentList  []ListItem
 	warpList      []ListItem
 	commandList   []ListItem
 	notesList     []ListItem
+	settingsList  []ListItem
 	availPages    []PageType
 	pageIndex     int
 	cursor        int
@@ -37,9 +43,33 @@ type MultiPageViewModel struct {
 	filteredList []ListItem
 }
 
-func NewMultiPageViewModel(config *ConfigDTO) MultiPageViewModel {
+func NewMultiPageViewModel(config *ConfigDTO, options *OptionsDTO, warpFrequency *WarpFrequencyDTO) MultiPageViewModel {
+	// Build frequent list if enabled and has data
+	var frequentList []ListItem
+	if options.FrequentWarp && !warpFrequency.IsEmpty() {
+		topKeys := warpFrequency.GetTopWarpKeys()
+		for _, key := range topKeys {
+			if value, exists := config.Warp.Values[key]; exists {
+				frequentList = append(frequentList, ListItem{
+					T:     key,
+					D:     value,
+					IsDiv: false,
+				})
+			}
+		}
+	}
+
+	// Build settings list
+	settingsList := buildSettingsList(options)
+
 	// Build list of available pages (non-empty)
 	availPages := []PageType{}
+
+	// Add frequent page first if enabled and has items
+	if len(frequentList) > 0 {
+		availPages = append(availPages, FrequentPage)
+	}
+
 	if len(config.Warp.Keys) > 0 {
 		availPages = append(availPages, WarpPage)
 	}
@@ -50,6 +80,9 @@ func NewMultiPageViewModel(config *ConfigDTO) MultiPageViewModel {
 		availPages = append(availPages, NotesPage)
 	}
 
+	// Always add settings page at the end
+	availPages = append(availPages, SettingsPage)
+
 	currentPage := WarpPage
 	if len(availPages) > 0 {
 		currentPage = availPages[0]
@@ -57,10 +90,14 @@ func NewMultiPageViewModel(config *ConfigDTO) MultiPageViewModel {
 
 	m := MultiPageViewModel{
 		config:        config,
+		options:       options,
+		warpFrequency: warpFrequency,
 		currentPage:   currentPage,
+		frequentList:  frequentList,
 		warpList:      ConfigItemsToListItems(config.Warp),
 		commandList:   ConfigItemsToListItems(config.Commands),
 		notesList:     ConfigItemsToListItems(config.Notes),
+		settingsList:  settingsList,
 		availPages:    availPages,
 		pageIndex:     0,
 		cursor:        0,
@@ -408,12 +445,16 @@ func (m MultiPageViewModel) View() string {
 
 func (m MultiPageViewModel) getCurrentList() []ListItem {
 	switch m.currentPage {
+	case FrequentPage:
+		return m.frequentList
 	case WarpPage:
 		return m.warpList
 	case CommandsPage:
 		return m.commandList
 	case NotesPage:
 		return m.notesList
+	case SettingsPage:
+		return m.settingsList
 	default:
 		return []ListItem{}
 	}
@@ -421,12 +462,16 @@ func (m MultiPageViewModel) getCurrentList() []ListItem {
 
 func (m MultiPageViewModel) getPageName() string {
 	switch m.currentPage {
+	case FrequentPage:
+		return "frequent"
 	case WarpPage:
 		return "warp"
 	case CommandsPage:
 		return "commands"
 	case NotesPage:
 		return "notes"
+	case SettingsPage:
+		return "settings"
 	default:
 		return ""
 	}
@@ -434,19 +479,23 @@ func (m MultiPageViewModel) getPageName() string {
 
 func (m MultiPageViewModel) getPageNameByType(page PageType) string {
 	switch page {
+	case FrequentPage:
+		return "frequent ⭐"
 	case WarpPage:
 		return "warp ⚡️"
 	case CommandsPage:
 		return "commands 🎮"
 	case NotesPage:
 		return "notes ✏️"
+	case SettingsPage:
+		return "settings ⚙️"
 	default:
 		return ""
 	}
 }
 
-func MultiPageView(config *ConfigDTO, selected *string) {
-	m := NewMultiPageViewModel(config)
+func MultiPageView(config *ConfigDTO, options *OptionsDTO, warpFrequency *WarpFrequencyDTO, selected *string) {
+	m := NewMultiPageViewModel(config, options, warpFrequency)
 	m.selected = selected
 
 	if _, err := tea.NewProgram(m).Run(); err != nil {
@@ -541,4 +590,32 @@ func (m MultiPageViewModel) highlightMatches(text, query string) string {
 	}
 
 	return result.String()
+}
+
+// buildSettingsList creates the settings items list based on current options
+func buildSettingsList(options *OptionsDTO) []ListItem {
+	items := []ListItem{}
+
+	// Frequent Warp setting
+	var frequentStatus string
+	if options.FrequentWarp {
+		frequentStatus = "enabled ✓"
+	} else {
+		frequentStatus = "disabled ✗"
+	}
+
+	items = append(items, ListItem{
+		T:     "frequent_warp",
+		D:     frequentStatus,
+		IsDiv: false,
+	})
+
+	// Clear Frequency History
+	items = append(items, ListItem{
+		T:     "clear_frequency",
+		D:     "clear all frequency history",
+		IsDiv: false,
+	})
+
+	return items
 }
