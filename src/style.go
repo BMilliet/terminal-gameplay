@@ -38,6 +38,12 @@ type Styles struct {
 	SearchTextColor  lipgloss.Color
 	HighlightBgColor lipgloss.Color
 	HighlightFgColor lipgloss.Color
+	
+	// Settings colors
+	SettingsTitleColor         lipgloss.Color
+	SettingsSelectedTitleColor lipgloss.Color
+	SettingsBorderColor        lipgloss.Color
+	SettingsValueColor         lipgloss.Color
 }
 
 func DefaultStyles() *Styles {
@@ -61,6 +67,12 @@ func DefaultStyles() *Styles {
 	s.SearchTextColor = s.ThistleColor
 	s.HighlightBgColor = lipgloss.Color("#FFD700") // Gold/yellow
 	s.HighlightFgColor = lipgloss.Color("#1A1A1A") // Dark text for readability
+	
+	// Settings colors - slightly desaturated/grayed versions of main palette
+	s.SettingsTitleColor = lipgloss.Color("#9B8B9F")         // Muted purple-gray (less saturated Orchid/Thistle)
+	s.SettingsSelectedTitleColor = lipgloss.Color("#C5B0C9") // Soft purple-gray (grayed Orchid)
+	s.SettingsBorderColor = lipgloss.Color("#7A6B7E")        // Medium purple-gray
+	s.SettingsValueColor = lipgloss.Color("#ADA0B0")         // Light purple-gray
 
 	s.BorderColor = s.OrchidColor
 	s.FooterColor = s.NyanzaColor

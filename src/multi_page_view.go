@@ -373,19 +373,29 @@ func (m MultiPageViewModel) View() string {
 
 			// Style for item box
 			var itemBox lipgloss.Style
+			var isSettingsPage = m.currentPage == SettingsPage
+			
 			if m.cursor == i {
 				// Selected item - with bright border and indented
+				borderColor := m.styles.SelectedTitleColor
+				if isSettingsPage {
+					borderColor = m.styles.SettingsSelectedTitleColor
+				}
 				itemBox = lipgloss.NewStyle().
 					Border(lipgloss.RoundedBorder()).
-					BorderForeground(m.styles.SelectedTitleColor).
+					BorderForeground(borderColor).
 					Padding(0, 1).
 					Width(70).
 					MarginLeft(2) // Indent selected item
 			} else {
 				// Unselected item - subtle border
+				borderColor := m.styles.MutedBorderColor
+				if isSettingsPage {
+					borderColor = m.styles.SettingsBorderColor
+				}
 				itemBox = lipgloss.NewStyle().
 					Border(lipgloss.RoundedBorder()).
-					BorderForeground(m.styles.MutedBorderColor).
+					BorderForeground(borderColor).
 					Padding(0, 1).
 					Width(70)
 			}
@@ -394,11 +404,21 @@ func (m MultiPageViewModel) View() string {
 			titleStyle := lipgloss.NewStyle().Bold(true)
 			var valueColor lipgloss.Color
 			if m.cursor == i {
-				titleStyle = titleStyle.Foreground(m.styles.SelectedTitleColor)
-				valueColor = m.styles.FooterColor
+				if isSettingsPage {
+					titleStyle = titleStyle.Foreground(m.styles.SettingsSelectedTitleColor)
+					valueColor = m.styles.SettingsValueColor
+				} else {
+					titleStyle = titleStyle.Foreground(m.styles.SelectedTitleColor)
+					valueColor = m.styles.FooterColor
+				}
 			} else {
-				titleStyle = titleStyle.Foreground(m.styles.MutedTitleColor)
-				valueColor = m.styles.MutedTitleColor
+				if isSettingsPage {
+					titleStyle = titleStyle.Foreground(m.styles.SettingsTitleColor)
+					valueColor = m.styles.SettingsValueColor
+				} else {
+					titleStyle = titleStyle.Foreground(m.styles.MutedTitleColor)
+					valueColor = m.styles.MutedTitleColor
+				}
 			}
 
 			// Value - smaller and wrapped
