@@ -31,6 +31,10 @@ type MultiPageViewModel struct {
 	selected      *string
 	quitting      bool
 	styles        *Styles
+	// Fuzzy find state
+	searchMode   bool
+	searchQuery  string
+	filteredList []ListItem
 }
 
 func NewMultiPageViewModel(config *ConfigDTO) MultiPageViewModel {
@@ -64,6 +68,9 @@ func NewMultiPageViewModel(config *ConfigDTO) MultiPageViewModel {
 		maxVisible:    10, // Show max 10 items at a time
 		quitting:      false,
 		styles:        DefaultStyles(),
+		searchMode:    false,
+		searchQuery:   "",
+		filteredList:  []ListItem{},
 	}
 
 	// Move cursor to first non-divider item
@@ -83,12 +90,57 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "esc", "q":
+		case "ctrl+c":
 			*m.selected = ExitSignal
 			m.quitting = true
 			return m, tea.Quit
 
+		case "esc", "q":
+			// If in search mode, exit search mode
+			if m.searchMode {
+				m.searchMode = false
+				m.searchQuery = ""
+				m.filteredList = []ListItem{}
+				m.cursor = 0
+				m.viewportStart = 0
+				// Skip dividers at start
+				items := m.getCurrentList()
+				for m.cursor < len(items) && items[m.cursor].IsDiv {
+					m.cursor++
+				}
+				return m, nil
+			}
+			// Otherwise quit
+			*m.selected = ExitSignal
+			m.quitting = true
+			return m, tea.Quit
+
+		case "/":
+			// Enter search mode
+			if !m.searchMode {
+				m.searchMode = true
+				m.searchQuery = ""
+				m.filteredList = []ListItem{}
+				m.cursor = 0
+				m.viewportStart = 0
+				return m, nil
+			}
+
+		case "backspace":
+			// Handle backspace in search mode
+			if m.searchMode && len(m.searchQuery) > 0 {
+				m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
+				m.updateFilteredList()
+				m.cursor = 0
+				m.viewportStart = 0
+				return m, nil
+			}
+
 		case "left", "h":
+			// Don't allow page navigation in search mode
+			if m.searchMode {
+				return m, nil
+			}
 			// Navigate to previous page
 			if m.pageIndex > 0 {
 				m.pageIndex--
@@ -103,6 +155,10 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "right", "l":
+			// Don't allow page navigation in search mode
+			if m.searchMode {
+				return m, nil
+			}
 			// Navigate to next page
 			if m.pageIndex < len(m.availPages)-1 {
 				m.pageIndex++
@@ -167,13 +223,27 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "enter":
-			items := m.getCurrentList()
+			items := m.getActiveList()
 			if len(items) > 0 && m.cursor < len(items) {
 				selectedItem := items[m.cursor]
 				result := fmt.Sprintf("%s|%s|%s", m.getPageName(), selectedItem.T, selectedItem.D)
 				*m.selected = result
 				m.quitting = true
 				return m, tea.Quit
+			}
+
+		default:
+			// Handle text input for search
+			if m.searchMode {
+				// Only accept single characters (letters, numbers, spaces, etc)
+				key := msg.String()
+				if len(key) == 1 {
+					m.searchQuery += key
+					m.updateFilteredList()
+					m.cursor = 0
+					m.viewportStart = 0
+					return m, nil
+				}
 			}
 		}
 	}
@@ -202,10 +272,31 @@ func (m MultiPageViewModel) View() string {
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, tabViews...))
 	b.WriteString("\n\n")
 
+	// Show search box if in search mode
+	if m.searchMode {
+		searchBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(m.styles.SearchBoxColor).
+			Padding(0, 1).
+			Width(70).
+			Foreground(m.styles.SearchTextColor)
+
+		searchText := fmt.Sprintf("🔍 Search: %s", m.searchQuery)
+		if m.searchQuery == "" {
+			searchText = "🔍 Search: (type to search...)"
+		}
+		b.WriteString(searchBox.Render(searchText))
+		b.WriteString("\n\n")
+	}
+
 	// Current page items with borders
-	items := m.getCurrentList()
+	items := m.getActiveList()
 	if len(items) == 0 {
-		b.WriteString(m.styles.FooterStyle.Render("  No items configured\n"))
+		if m.searchMode {
+			b.WriteString(m.styles.FooterStyle.Render("  No matches found\n"))
+		} else {
+			b.WriteString(m.styles.FooterStyle.Render("  No items configured\n"))
+		}
 	} else {
 		// Calculate visible range
 		visibleEnd := m.viewportStart + m.maxVisible
@@ -222,7 +313,7 @@ func (m MultiPageViewModel) View() string {
 		// Render only visible items
 		for i := m.viewportStart; i < visibleEnd; i++ {
 			item := items[i]
-			
+
 			// Check if this is a divider
 			if item.IsDiv {
 				// Render divider with subtle styling
@@ -236,7 +327,7 @@ func (m MultiPageViewModel) View() string {
 				b.WriteString("\n")
 				continue
 			}
-			
+
 			// Style for item box
 			var itemBox lipgloss.Style
 			if m.cursor == i {
@@ -273,10 +364,19 @@ func (m MultiPageViewModel) View() string {
 				Width(66). // Slightly less than box width for padding
 				Italic(true)
 
-			// Build content
+			// Build content with highlighting if in search mode
+			var titleText, valueText string
+			if m.searchMode && m.searchQuery != "" {
+				titleText = m.highlightMatches(item.T, m.searchQuery)
+				valueText = m.highlightMatches(item.D, m.searchQuery)
+			} else {
+				titleText = item.T
+				valueText = item.D
+			}
+
 			content := fmt.Sprintf("%s\n%s",
-				titleStyle.Render(item.T),
-				valueStyle.Render(item.D),
+				titleStyle.Render(titleText),
+				valueStyle.Render(valueText),
 			)
 
 			b.WriteString(itemBox.Render(content))
@@ -292,9 +392,14 @@ func (m MultiPageViewModel) View() string {
 
 	// Footer
 	b.WriteString("\n")
-	helpText := "  ↑↓/jk navigate • enter select • q/esc quit"
-	if len(m.availPages) > 1 {
-		helpText = "  ← →/hl switch • ↑↓/jk navigate • enter select • q/esc quit"
+	var helpText string
+	if m.searchMode {
+		helpText = "  type to search • ↑↓/jk navigate • enter select • esc cancel"
+	} else {
+		helpText = "  / search • ↑↓/jk navigate • enter select • q/esc quit"
+		if len(m.availPages) > 1 {
+			helpText = "  / search • ← →/hl switch • ↑↓/jk navigate • enter select • q/esc quit"
+		}
 	}
 	b.WriteString(m.styles.FooterStyle.Render(helpText + "\n"))
 
@@ -348,4 +453,92 @@ func MultiPageView(config *ConfigDTO, selected *string) {
 		fmt.Println("MultiPageView -> ", err)
 		os.Exit(1)
 	}
+}
+
+// getActiveList returns the current list or filtered list if in search mode
+func (m MultiPageViewModel) getActiveList() []ListItem {
+	if m.searchMode && m.searchQuery != "" {
+		return m.filteredList
+	}
+	return m.getCurrentList()
+}
+
+// updateFilteredList performs fuzzy matching and updates the filtered list
+func (m *MultiPageViewModel) updateFilteredList() {
+	if m.searchQuery == "" {
+		m.filteredList = []ListItem{}
+		return
+	}
+
+	currentList := m.getCurrentList()
+	m.filteredList = []ListItem{}
+
+	query := strings.ToLower(m.searchQuery)
+
+	for _, item := range currentList {
+		// Skip dividers
+		if item.IsDiv {
+			continue
+		}
+
+		// Check if query matches in title or description
+		titleLower := strings.ToLower(item.T)
+		descLower := strings.ToLower(item.D)
+
+		if fuzzyMatch(titleLower, query) || fuzzyMatch(descLower, query) {
+			m.filteredList = append(m.filteredList, item)
+		}
+	}
+}
+
+// fuzzyMatch checks if query fuzzy matches the text
+func fuzzyMatch(text, query string) bool {
+	if query == "" {
+		return true
+	}
+
+	textIdx := 0
+	queryIdx := 0
+
+	for textIdx < len(text) && queryIdx < len(query) {
+		if text[textIdx] == query[queryIdx] {
+			queryIdx++
+		}
+		textIdx++
+	}
+
+	return queryIdx == len(query)
+}
+
+// highlightMatches adds ANSI color codes to highlight matching characters
+func (m MultiPageViewModel) highlightMatches(text, query string) string {
+	if query == "" {
+		return text
+	}
+
+	// Yellow background with dark text for highlighting
+	highlightStyle := lipgloss.NewStyle().
+		Background(m.styles.HighlightBgColor).
+		Foreground(m.styles.HighlightFgColor)
+
+	textLower := strings.ToLower(text)
+	queryLower := strings.ToLower(query)
+
+	var result strings.Builder
+	textIdx := 0
+	queryIdx := 0
+
+	for textIdx < len(text) {
+		if queryIdx < len(queryLower) && textLower[textIdx] == queryLower[queryIdx] {
+			// This character matches - highlight it
+			result.WriteString(highlightStyle.Render(string(text[textIdx])))
+			queryIdx++
+		} else {
+			// No match - write character as-is
+			result.WriteByte(text[textIdx])
+		}
+		textIdx++
+	}
+
+	return result.String()
 }

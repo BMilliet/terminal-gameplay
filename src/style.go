@@ -32,6 +32,12 @@ type Styles struct {
 	// Muted colors for unselected items
 	MutedTitleColor  lipgloss.Color
 	MutedBorderColor lipgloss.Color
+
+	// Search and highlight colors
+	SearchBoxColor   lipgloss.Color
+	SearchTextColor  lipgloss.Color
+	HighlightBgColor lipgloss.Color
+	HighlightFgColor lipgloss.Color
 }
 
 func DefaultStyles() *Styles {
@@ -49,6 +55,12 @@ func DefaultStyles() *Styles {
 	// Muted colors for unselected items
 	s.MutedTitleColor = lipgloss.Color("#6B6B6B")  // Subtle gray
 	s.MutedBorderColor = lipgloss.Color("#3A3A3A") // Very dark gray
+
+	// Search and highlight colors
+	s.SearchBoxColor = s.AquamarineColor
+	s.SearchTextColor = s.ThistleColor
+	s.HighlightBgColor = lipgloss.Color("#FFD700") // Gold/yellow
+	s.HighlightFgColor = lipgloss.Color("#1A1A1A") // Dark text for readability
 
 	s.BorderColor = s.OrchidColor
 	s.FooterColor = s.NyanzaColor
