@@ -77,11 +77,6 @@ func DefaultStyles() *Styles {
 	s.SettingsValueColor = lipgloss.Color("#ADA0B0")         // Light purple-gray
 	s.SettingsEnabledColor = lipgloss.Color("#A8DDA8")       // Soft pastel green (harmonizes with Nyanza/Aquamarine)
 	s.SettingsDisabledColor = lipgloss.Color("#E8999D")      // Soft pastel red (harmonizes with Coral/ErrorColor)
-	s.SettingsSelectedTitleColor = lipgloss.Color("#C5B0C9") // Soft purple-gray (grayed Orchid)
-	s.SettingsBorderColor = lipgloss.Color("#7A6B7E")        // Medium purple-gray
-	s.SettingsValueColor = lipgloss.Color("#ADA0B0")         // Light purple-gray
-	s.SettingsEnabledColor = lipgloss.Color("#A8DDA8")       // Soft pastel green (harmonizes with Nyanza/Aquamarine)
-	s.SettingsDisabledColor = lipgloss.Color("#E8999D")      // Soft pastel red (harmonizes with Coral/ErrorColor)
 
 	s.BorderColor = s.OrchidColor
 	s.FooterColor = s.NyanzaColor
