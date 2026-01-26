@@ -431,11 +431,11 @@ func (m MultiPageViewModel) View() string {
 	b.WriteString("\n")
 	var helpText string
 	if m.searchMode {
-		helpText = "  type to search • ↑↓/jk navigate • enter select • esc cancel"
+		helpText = "  type to search • ↑↓ navigate • enter select • esc cancel"
 	} else {
-		helpText = "  / search • ↑↓/jk navigate • enter select • q/esc quit"
+		helpText = "  / search • ↑↓ navigate • enter select • q/esc quit"
 		if len(m.availPages) > 1 {
-			helpText = "  / search • ← →/hl switch • ↑↓/jk navigate • enter select • q/esc quit"
+			helpText = "  / search • ← → switch • ↑↓ navigate • enter select • q/esc quit"
 		}
 	}
 	b.WriteString(m.styles.FooterStyle.Render(helpText + "\n"))
