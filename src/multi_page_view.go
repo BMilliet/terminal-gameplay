@@ -136,7 +136,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-		case "left", "h":
+		case "left":
 			// Don't allow page navigation in search mode
 			if m.searchMode {
 				return m, nil
@@ -154,7 +154,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-		case "right", "l":
+		case "right":
 			// Don't allow page navigation in search mode
 			if m.searchMode {
 				return m, nil
@@ -172,7 +172,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-		case "up", "k":
+		case "up":
 			items := m.getCurrentList()
 			if m.cursor > 0 {
 				m.cursor--
@@ -199,7 +199,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-		case "down", "j":
+		case "down":
 			items := m.getCurrentList()
 			if m.cursor < len(items)-1 {
 				m.cursor++
