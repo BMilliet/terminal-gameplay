@@ -178,17 +178,20 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.searchMode {
 				return m, nil
 			}
-			// Navigate to previous page
+			// Navigate to previous page (circular)
 			if m.pageIndex > 0 {
 				m.pageIndex--
-				m.currentPage = m.availPages[m.pageIndex]
-				m.cursor = 0
-				m.viewportStart = 0
-				// Skip dividers at start of page
-				items := m.getCurrentList()
-				for m.cursor < len(items) && items[m.cursor].IsDiv {
-					m.cursor++
-				}
+			} else {
+				// Wrap to last page
+				m.pageIndex = len(m.availPages) - 1
+			}
+			m.currentPage = m.availPages[m.pageIndex]
+			m.cursor = 0
+			m.viewportStart = 0
+			// Skip dividers at start of page
+			items := m.getCurrentList()
+			for m.cursor < len(items) && items[m.cursor].IsDiv {
+				m.cursor++
 			}
 
 		case "right":
@@ -196,17 +199,20 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.searchMode {
 				return m, nil
 			}
-			// Navigate to next page
+			// Navigate to next page (circular)
 			if m.pageIndex < len(m.availPages)-1 {
 				m.pageIndex++
-				m.currentPage = m.availPages[m.pageIndex]
-				m.cursor = 0
-				m.viewportStart = 0
-				// Skip dividers at start of page
-				items := m.getCurrentList()
-				for m.cursor < len(items) && items[m.cursor].IsDiv {
-					m.cursor++
-				}
+			} else {
+				// Wrap to first page
+				m.pageIndex = 0
+			}
+			m.currentPage = m.availPages[m.pageIndex]
+			m.cursor = 0
+			m.viewportStart = 0
+			// Skip dividers at start of page
+			items := m.getCurrentList()
+			for m.cursor < len(items) && items[m.cursor].IsDiv {
+				m.cursor++
 			}
 
 		case "up":
