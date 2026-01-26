@@ -374,7 +374,7 @@ func (m MultiPageViewModel) View() string {
 			// Style for item box
 			var itemBox lipgloss.Style
 			var isSettingsPage = m.currentPage == SettingsPage
-			
+
 			if m.cursor == i {
 				// Selected item - with bright border and indented
 				borderColor := m.styles.SelectedTitleColor
@@ -437,9 +437,34 @@ func (m MultiPageViewModel) View() string {
 				valueText = item.D
 			}
 
+			// Apply special colors for settings toggles (enabled/disabled)
+			var renderedValue string
+			if isSettingsPage {
+				if strings.Contains(strings.ToLower(item.D), "enabled") {
+					// Use green color for enabled
+					enabledStyle := lipgloss.NewStyle().
+						Foreground(m.styles.SettingsEnabledColor).
+						Width(66).
+						Italic(true)
+					renderedValue = enabledStyle.Render(valueText)
+				} else if strings.Contains(strings.ToLower(item.D), "disabled") {
+					// Use red color for disabled
+					disabledStyle := lipgloss.NewStyle().
+						Foreground(m.styles.SettingsDisabledColor).
+						Width(66).
+						Italic(true)
+					renderedValue = disabledStyle.Render(valueText)
+				} else {
+					// Default value style for non-toggle settings
+					renderedValue = valueStyle.Render(valueText)
+				}
+			} else {
+				renderedValue = valueStyle.Render(valueText)
+			}
+
 			content := fmt.Sprintf("%s\n%s",
 				titleStyle.Render(titleText),
-				valueStyle.Render(valueText),
+				renderedValue,
 			)
 
 			b.WriteString(itemBox.Render(content))
