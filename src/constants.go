@@ -7,5 +7,5 @@ const (
 	AppDirName            = ".terminal-gameplay"
 	ConfigFileName        = "config.json"
 	OptionsFileName       = "options.json"
-	WarpFrequencyFileName = "warp_frequency.json"
+	GoToFrequencyFileName = "goto_frequency.json"
 )

@@ -1,11 +1,11 @@
 package src
 
 type OptionsDTO struct {
-	FrequentWarp bool `json:"frequent_warp"`
+	FrequentGoTo bool `json:"frequent_goTo"`
 }
 
 func GetDefaultOptions() *OptionsDTO {
 	return &OptionsDTO{
-		FrequentWarp: true,
+		FrequentGoTo: true,
 	}
 }

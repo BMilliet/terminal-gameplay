@@ -44,7 +44,7 @@ func ConfigItemsToListItems(items OrderedMap) []ListItem {
 // GetDefaultConfig returns default configuration
 func GetDefaultConfig() *ConfigDTO {
 	return &ConfigDTO{
-		Warp: OrderedMap{
+		GoTo: OrderedMap{
 			Keys:   []string{"home"},
 			Values: map[string]string{"home": "~"},
 		},

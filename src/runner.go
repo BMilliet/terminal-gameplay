@@ -75,32 +75,32 @@ func (r *Runner) Start() {
 		}
 	}
 
-	// Load or create default warp frequency
-	warpFreqContent, err := r.fileManager.GetWarpFrequencyContent()
+	// Load or create default goTo frequency
+	goToFreqContent, err := r.fileManager.GetGoToFrequencyContent()
 	if err != nil {
-		r.utils.HandleError(err, "Failed to read warp frequency")
+		r.utils.HandleError(err, "Failed to read goTo frequency")
 	}
 
-	var warpFrequency *WarpFrequencyDTO
-	if warpFreqContent == "" {
-		// Create default warp frequency
-		warpFrequency = GetDefaultWarpFrequency()
-		jsonStr, err := ToJSON(warpFrequency)
+	var goToFrequency *GoToFrequencyDTO
+	if goToFreqContent == "" {
+		// Create default goTo frequency
+		goToFrequency = GetDefaultGoToFrequency()
+		jsonStr, err := ToJSON(goToFrequency)
 		if err != nil {
-			r.utils.HandleError(err, "Failed to create default warp frequency")
+			r.utils.HandleError(err, "Failed to create default goTo frequency")
 		}
-		if err := r.fileManager.WriteWarpFrequencyContent(jsonStr); err != nil {
-			r.utils.HandleError(err, "Failed to write default warp frequency")
+		if err := r.fileManager.WriteGoToFrequencyContent(jsonStr); err != nil {
+			r.utils.HandleError(err, "Failed to write default goTo frequency")
 		}
 	} else {
-		warpFrequency, err = ParseJSONContent[WarpFrequencyDTO](warpFreqContent)
+		goToFrequency, err = ParseJSONContent[GoToFrequencyDTO](goToFreqContent)
 		if err != nil {
-			r.utils.HandleError(err, "Failed to parse warp_frequency.json")
+			r.utils.HandleError(err, "Failed to parse goto_frequency.json")
 		}
 	}
 
 	// Check if all pages are empty
-	if len(config.Warp.Keys) == 0 && len(config.Commands.Keys) == 0 && len(config.Notes.Keys) == 0 {
+	if len(config.GoTo.Keys) == 0 && len(config.Commands.Keys) == 0 && len(config.Notes.Keys) == 0 {
 		println(styles.Text("\n⚠️  All pages are empty!", styles.ErrorColor))
 		println(styles.Text("\nPlease edit your config file:", styles.TitleColor))
 		println(styles.Text("  "+r.fileManager.(*FileManager).ConfigPath, styles.FooterColor))
@@ -109,7 +109,7 @@ func (r *Runner) Start() {
 	}
 
 	// Show multi-page view
-	result := r.viewBuilder.NewMultiPageView(config, options, warpFrequency)
+	result := r.viewBuilder.NewMultiPageView(config, options, goToFrequency)
 	r.utils.ValidateInput(result)
 
 	// Parse result: "page|label|value"
@@ -127,9 +127,9 @@ func (r *Runner) Start() {
 	case "settings":
 		// Handle settings toggle
 		switch label {
-		case "frequent_warp":
-			// Toggle the frequent_warp option
-			options.FrequentWarp = !options.FrequentWarp
+		case "frequent_goTo":
+			// Toggle the frequent_goTo option
+			options.FrequentGoTo = !options.FrequentGoTo
 
 			// Save the updated options
 			jsonStr, err := ToJSON(options)
@@ -141,37 +141,37 @@ func (r *Runner) Start() {
 			}
 
 			var statusMsg string
-			if options.FrequentWarp {
-				statusMsg = "✓ Frequent Warp enabled"
+			if options.FrequentGoTo {
+				statusMsg = "✓ Frequent GoTo enabled"
 			} else {
-				statusMsg = "✓ Frequent Warp disabled"
+				statusMsg = "✓ Frequent GoTo disabled"
 			}
 			println(styles.Text(statusMsg, styles.AquamarineColor))
 
 		case "clear_frequency":
 			// Clear the frequency history
-			emptyFrequency := GetDefaultWarpFrequency()
+			emptyFrequency := GetDefaultGoToFrequency()
 			jsonStr, err := ToJSON(emptyFrequency)
 			if err != nil {
-				r.utils.HandleError(err, "Failed to serialize warp frequency")
+				r.utils.HandleError(err, "Failed to serialize goTo frequency")
 			}
-			if err := r.fileManager.WriteWarpFrequencyContent(jsonStr); err != nil {
-				r.utils.HandleError(err, "Failed to write warp frequency")
+			if err := r.fileManager.WriteGoToFrequencyContent(jsonStr); err != nil {
+				r.utils.HandleError(err, "Failed to write goTo frequency")
 			}
 
 			println(styles.Text("✓ Frequency history cleared", styles.AquamarineColor))
 		}
 
-	case "warp", "frequent":
-		// Increment warp frequency counter if it's a warp navigation
-		if options.FrequentWarp {
-			warpFrequency.IncrementWarp(label)
-			jsonStr, err := ToJSON(warpFrequency)
+	case "goTo", "frequent":
+		// Increment goTo frequency counter if it's a goTo navigation
+		if options.FrequentGoTo {
+			goToFrequency.IncrementGoTo(label)
+			jsonStr, err := ToJSON(goToFrequency)
 			if err != nil {
-				r.utils.HandleError(err, "Failed to serialize warp frequency")
+				r.utils.HandleError(err, "Failed to serialize goTo frequency")
 			}
-			if err := r.fileManager.WriteWarpFrequencyContent(jsonStr); err != nil {
-				r.utils.HandleError(err, "Failed to write warp frequency")
+			if err := r.fileManager.WriteGoToFrequencyContent(jsonStr); err != nil {
+				r.utils.HandleError(err, "Failed to write goTo frequency")
 			}
 		}
 

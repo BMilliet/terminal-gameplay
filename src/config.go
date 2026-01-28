@@ -7,7 +7,7 @@ import (
 )
 
 type ConfigDTO struct {
-	Warp     OrderedMap `json:"warp"`
+	GoTo     OrderedMap `json:"goTo"`
 	Commands OrderedMap `json:"commands"`
 	Notes    OrderedMap `json:"notes"`
 }

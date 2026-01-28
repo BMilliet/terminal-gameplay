@@ -3,7 +3,7 @@ package src
 type ViewBuilderInterface interface {
 	NewListView(title string, op []ListItem, height int) ListItem
 	NewTextFieldView(title, placeHolder string) string
-	NewMultiPageView(config *ConfigDTO, options *OptionsDTO, warpFrequency *WarpFrequencyDTO) string
+	NewMultiPageView(config *ConfigDTO, options *OptionsDTO, goToFrequency *GoToFrequencyDTO) string
 }
 
 type ViewBuilder struct{}
@@ -24,8 +24,8 @@ func (b *ViewBuilder) NewTextFieldView(title, placeHolder string) string {
 	return endValue
 }
 
-func (b *ViewBuilder) NewMultiPageView(config *ConfigDTO, options *OptionsDTO, warpFrequency *WarpFrequencyDTO) string {
+func (b *ViewBuilder) NewMultiPageView(config *ConfigDTO, options *OptionsDTO, goToFrequency *GoToFrequencyDTO) string {
 	selected := ""
-	MultiPageView(config, options, warpFrequency, &selected)
+	MultiPageView(config, options, goToFrequency, &selected)
 	return selected
 }

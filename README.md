@@ -1,10 +1,10 @@
 # Terminal Gameplay (tg)
 
-A powerful terminal productivity tool that provides quick access to directories (warp), custom commands, and notes through an intuitive TUI (Terminal User Interface).
+A powerful terminal productivity tool that provides quick access to directories (goTo), custom commands, and notes through an intuitive TUI (Terminal User Interface).
 
 ## Features
 
-- 🚀 **Warp**: Quickly navigate to your frequently used directories
+- 🚀 **GoTo**: Quickly navigate to your frequently used directories
 - ⚡ **Commands**: Store and execute custom shell commands with ease
 - 📝 **Notes**: Keep quick notes and snippets at your fingertips
 
@@ -123,7 +123,7 @@ On first run, `tg` creates a configuration file at `~/.terminal-gameplay/config.
 
 ```json
 {
-  "warp": {
+  "goTo": {
     "home": "~",
     "projects": "~/projects"
   },
@@ -142,7 +142,7 @@ You can organize your lists with visual dividers to separate items into sections
 
 ```json
 {
-  "warp": {
+  "goTo": {
     "home": "~",
     "div": "⚙️ work projects",
     "frontend": "~/workspace/frontend-app",

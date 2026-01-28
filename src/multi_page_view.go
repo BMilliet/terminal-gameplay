@@ -13,43 +13,43 @@ type PageType int
 
 const (
 	FrequentPage PageType = iota
-	WarpPage
+	GoToPage
 	CommandsPage
 	NotesPage
 	SettingsPage
 )
 
 type MultiPageViewModel struct {
-	config        *ConfigDTO
-	options       *OptionsDTO
-	warpFrequency *WarpFrequencyDTO
-	currentPage   PageType
-	frequentList  []ListItem
-	warpList      []ListItem
-	commandList   []ListItem
-	notesList     []ListItem
-	settingsList  []ListItem
-	availPages    []PageType
-	pageIndex     int
-	cursor        int
-	viewportStart int // First visible item index for scrolling
-	maxVisible    int // Maximum items to show at once
-	selected      *string
-	quitting      bool
-	styles        *Styles
+	config          *ConfigDTO
+	options         *OptionsDTO
+	goToFrequency   *GoToFrequencyDTO
+	currentPage     PageType
+	frequentList    []ListItem
+	goToList        []ListItem
+	commandList     []ListItem
+	notesList       []ListItem
+	settingsList    []ListItem
+	availPages      []PageType
+	pageIndex       int
+	cursor          int
+	viewportStart   int // First visible item index for scrolling
+	maxVisible      int // Maximum items to show at once
+	selected        *string
+	quitting        bool
+	styles          *Styles
 	// Fuzzy find state
 	searchMode   bool
 	searchQuery  string
 	filteredList []ListItem
 }
 
-func NewMultiPageViewModel(config *ConfigDTO, options *OptionsDTO, warpFrequency *WarpFrequencyDTO) MultiPageViewModel {
+func NewMultiPageViewModel(config *ConfigDTO, options *OptionsDTO, goToFrequency *GoToFrequencyDTO) MultiPageViewModel {
 	// Build frequent list if enabled and has data
 	var frequentList []ListItem
-	if options.FrequentWarp && !warpFrequency.IsEmpty() {
-		topKeys := warpFrequency.GetTopWarpKeys()
+	if options.FrequentGoTo && !goToFrequency.IsEmpty() {
+		topKeys := goToFrequency.GetTopGoToKeys()
 		for _, key := range topKeys {
-			if value, exists := config.Warp.Values[key]; exists {
+			if value, exists := config.GoTo.Values[key]; exists {
 				frequentList = append(frequentList, ListItem{
 					T:     key,
 					D:     value,
@@ -70,8 +70,8 @@ func NewMultiPageViewModel(config *ConfigDTO, options *OptionsDTO, warpFrequency
 		availPages = append(availPages, FrequentPage)
 	}
 
-	if len(config.Warp.Keys) > 0 {
-		availPages = append(availPages, WarpPage)
+	if len(config.GoTo.Keys) > 0 {
+		availPages = append(availPages, GoToPage)
 	}
 	if len(config.Commands.Keys) > 0 {
 		availPages = append(availPages, CommandsPage)
@@ -83,7 +83,7 @@ func NewMultiPageViewModel(config *ConfigDTO, options *OptionsDTO, warpFrequency
 	// Always add settings page at the end
 	availPages = append(availPages, SettingsPage)
 
-	currentPage := WarpPage
+	currentPage := GoToPage
 	if len(availPages) > 0 {
 		currentPage = availPages[0]
 	}
@@ -91,10 +91,10 @@ func NewMultiPageViewModel(config *ConfigDTO, options *OptionsDTO, warpFrequency
 	m := MultiPageViewModel{
 		config:        config,
 		options:       options,
-		warpFrequency: warpFrequency,
+		goToFrequency: goToFrequency,
 		currentPage:   currentPage,
 		frequentList:  frequentList,
-		warpList:      ConfigItemsToListItems(config.Warp),
+		goToList:      ConfigItemsToListItems(config.GoTo),
 		commandList:   ConfigItemsToListItems(config.Commands),
 		notesList:     ConfigItemsToListItems(config.Notes),
 		settingsList:  settingsList,
@@ -498,8 +498,8 @@ func (m MultiPageViewModel) getCurrentList() []ListItem {
 	switch m.currentPage {
 	case FrequentPage:
 		return m.frequentList
-	case WarpPage:
-		return m.warpList
+	case GoToPage:
+		return m.goToList
 	case CommandsPage:
 		return m.commandList
 	case NotesPage:
@@ -515,8 +515,8 @@ func (m MultiPageViewModel) getPageName() string {
 	switch m.currentPage {
 	case FrequentPage:
 		return "frequent"
-	case WarpPage:
-		return "warp"
+	case GoToPage:
+		return "goTo"
 	case CommandsPage:
 		return "commands"
 	case NotesPage:
@@ -532,8 +532,8 @@ func (m MultiPageViewModel) getPageNameByType(page PageType) string {
 	switch page {
 	case FrequentPage:
 		return "frequent ⭐"
-	case WarpPage:
-		return "warp ⚡️"
+	case GoToPage:
+		return "goTo ⚡️"
 	case CommandsPage:
 		return "commands 🎮"
 	case NotesPage:
@@ -545,8 +545,8 @@ func (m MultiPageViewModel) getPageNameByType(page PageType) string {
 	}
 }
 
-func MultiPageView(config *ConfigDTO, options *OptionsDTO, warpFrequency *WarpFrequencyDTO, selected *string) {
-	m := NewMultiPageViewModel(config, options, warpFrequency)
+func MultiPageView(config *ConfigDTO, options *OptionsDTO, goToFrequency *GoToFrequencyDTO, selected *string) {
+	m := NewMultiPageViewModel(config, options, goToFrequency)
 	m.selected = selected
 
 	if _, err := tea.NewProgram(m).Run(); err != nil {
@@ -647,16 +647,16 @@ func (m MultiPageViewModel) highlightMatches(text, query string) string {
 func buildSettingsList(options *OptionsDTO) []ListItem {
 	items := []ListItem{}
 
-	// Frequent Warp setting
+	// Frequent GoTo setting
 	var frequentStatus string
-	if options.FrequentWarp {
+	if options.FrequentGoTo {
 		frequentStatus = "enabled ✓"
 	} else {
 		frequentStatus = "disabled ✗"
 	}
 
 	items = append(items, ListItem{
-		T:     "frequent_warp",
+		T:     "frequent_goTo",
 		D:     frequentStatus,
 		IsDiv: false,
 	})

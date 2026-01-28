@@ -14,8 +14,8 @@ type FileManagerInterface interface {
 	WriteConfigContent(content string) error
 	GetOptionsContent() (string, error)
 	WriteOptionsContent(content string) error
-	GetWarpFrequencyContent() (string, error)
-	WriteWarpFrequencyContent(content string) error
+	GetGoToFrequencyContent() (string, error)
+	WriteGoToFrequencyContent(content string) error
 	BasicSetup() error
 	GetCurrentDirectoryName() (string, error)
 }
@@ -25,7 +25,7 @@ type FileManager struct {
 	AppDir            string
 	ConfigPath        string
 	OptionsPath       string
-	WarpFrequencyPath string
+	GoToFrequencyPath string
 }
 
 func NewFileManager() (*FileManager, error) {
@@ -37,14 +37,14 @@ func NewFileManager() (*FileManager, error) {
 	appDir := filepath.Join(homeDir, AppDirName)
 	configPath := filepath.Join(appDir, ConfigFileName)
 	optionsPath := filepath.Join(appDir, OptionsFileName)
-	warpFrequencyPath := filepath.Join(appDir, WarpFrequencyFileName)
+	goToFrequencyPath := filepath.Join(appDir, GoToFrequencyFileName)
 
 	return &FileManager{
-		HomeDir:           homeDir,
-		AppDir:            appDir,
-		ConfigPath:        configPath,
-		OptionsPath:       optionsPath,
-		WarpFrequencyPath: warpFrequencyPath,
+		HomeDir:          homeDir,
+		AppDir:           appDir,
+		ConfigPath:       configPath,
+		OptionsPath:      optionsPath,
+		GoToFrequencyPath: goToFrequencyPath,
 	}, nil
 }
 
@@ -131,18 +131,18 @@ func (m *FileManager) WriteOptionsContent(content string) error {
 	return nil
 }
 
-func (m *FileManager) GetWarpFrequencyContent() (string, error) {
-	str, err := m.ReadFileContent(m.WarpFrequencyPath)
+func (m *FileManager) GetGoToFrequencyContent() (string, error) {
+	str, err := m.ReadFileContent(m.GoToFrequencyPath)
 	if err != nil {
-		return "", fmt.Errorf("GetWarpFrequencyContent -> %s %v", m.WarpFrequencyPath, err)
+		return "", fmt.Errorf("GetGoToFrequencyContent -> %s %v", m.GoToFrequencyPath, err)
 	}
 	return str, nil
 }
 
-func (m *FileManager) WriteWarpFrequencyContent(content string) error {
-	err := m.WriteFileContent(m.WarpFrequencyPath, content)
+func (m *FileManager) WriteGoToFrequencyContent(content string) error {
+	err := m.WriteFileContent(m.GoToFrequencyPath, content)
 	if err != nil {
-		return fmt.Errorf("WriteWarpFrequencyContent -> %s: %v", m.WarpFrequencyPath, err)
+		return fmt.Errorf("WriteGoToFrequencyContent -> %s: %v", m.GoToFrequencyPath, err)
 	}
 	return nil
 }
@@ -155,7 +155,7 @@ func (m *FileManager) BasicSetup() error {
 	files := []string{
 		m.ConfigPath,
 		m.OptionsPath,
-		m.WarpFrequencyPath,
+		m.GoToFrequencyPath,
 	}
 
 	for _, file := range files {

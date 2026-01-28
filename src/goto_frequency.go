@@ -2,26 +2,26 @@ package src
 
 import "sort"
 
-type WarpFrequencyDTO struct {
+type GoToFrequencyDTO struct {
 	Frequencies map[string]int `json:"frequencies"`
 }
 
-func GetDefaultWarpFrequency() *WarpFrequencyDTO {
-	return &WarpFrequencyDTO{
+func GetDefaultGoToFrequency() *GoToFrequencyDTO {
+	return &GoToFrequencyDTO{
 		Frequencies: make(map[string]int),
 	}
 }
 
-// IncrementWarp increments the frequency count for a given warp key
-func (wf *WarpFrequencyDTO) IncrementWarp(key string) {
+// IncrementGoTo increments the frequency count for a given goTo key
+func (wf *GoToFrequencyDTO) IncrementGoTo(key string) {
 	if wf.Frequencies == nil {
 		wf.Frequencies = make(map[string]int)
 	}
 	wf.Frequencies[key]++
 }
 
-// GetTopWarpKeys returns warp keys sorted by frequency (most frequent first)
-func (wf *WarpFrequencyDTO) GetTopWarpKeys() []string {
+// GetTopGoToKeys returns goTo keys sorted by frequency (most frequent first)
+func (wf *GoToFrequencyDTO) GetTopGoToKeys() []string {
 	if len(wf.Frequencies) == 0 {
 		return []string{}
 	}
@@ -52,6 +52,6 @@ func (wf *WarpFrequencyDTO) GetTopWarpKeys() []string {
 }
 
 // IsEmpty returns true if there are no recorded frequencies
-func (wf *WarpFrequencyDTO) IsEmpty() bool {
+func (wf *GoToFrequencyDTO) IsEmpty() bool {
 	return len(wf.Frequencies) == 0
 }
