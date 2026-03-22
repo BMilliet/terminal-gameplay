@@ -102,7 +102,7 @@ func NewMultiPageViewModel(config *ConfigDTO, options *OptionsDTO, goToFrequency
 		pageIndex:     0,
 		cursor:        0,
 		viewportStart: 0,
-		maxVisible:    10, // Show max 10 items at a time
+		maxVisible:    8, // Show max 8 items at a time
 		quitting:      false,
 		styles:        DefaultStyles(),
 		searchMode:    false,
