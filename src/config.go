@@ -103,6 +103,18 @@ func (om OrderedMap) Get(key string) (string, bool) {
 	return val, ok
 }
 
+func (om *OrderedMap) Set(key, value string) {
+	if om.Values == nil {
+		om.Values = make(map[string]string)
+	}
+
+	if _, exists := om.Values[key]; !exists {
+		om.Keys = append(om.Keys, key)
+	}
+
+	om.Values[key] = value
+}
+
 // Len returns the number of items
 func (om OrderedMap) Len() int {
 	return len(om.Keys)

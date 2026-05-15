@@ -15,6 +15,7 @@ type UtilsInterface interface {
 	ExpandPath(path string) string
 	ExecuteCommand(command string) error
 	CopyToClipboard(text string) error
+	OpenInNvim(filePath string) error
 	ChangeDirectory(path string) error
 }
 
@@ -83,6 +84,19 @@ func (u *Utils) CopyToClipboard(text string) error {
 	// Try xsel (Linux alternative)
 	cmd = exec.Command("xsel", "--clipboard", "--input")
 	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
+}
+
+func (u *Utils) OpenInNvim(filePath string) error {
+	editor, err := exec.LookPath("nvim")
+	if err != nil {
+		return fmt.Errorf("nvim not found in PATH")
+	}
+
+	cmd := exec.Command(editor, filePath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
 	return cmd.Run()
 }
 

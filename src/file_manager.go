@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type FileManagerInterface interface {
@@ -12,10 +13,16 @@ type FileManagerInterface interface {
 	WriteFileContent(filePath, content string) error
 	GetConfigContent() (string, error)
 	WriteConfigContent(content string) error
+	GetFeaturesContent() (string, error)
+	WriteFeaturesContent(content string) error
 	GetOptionsContent() (string, error)
 	WriteOptionsContent(content string) error
 	GetGoToFrequencyContent() (string, error)
 	WriteGoToFrequencyContent(content string) error
+	EnsureNotesDir() error
+	GetNotePath(title string) string
+	EnsureNoteFile(title, content string) (string, error)
+	SyncNotesContent(notes *OrderedMap) error
 	BasicSetup() error
 	GetCurrentDirectoryName() (string, error)
 }
@@ -23,7 +30,9 @@ type FileManagerInterface interface {
 type FileManager struct {
 	HomeDir           string
 	AppDir            string
+	NotesDir          string
 	ConfigPath        string
+	FeaturesPath      string
 	OptionsPath       string
 	GoToFrequencyPath string
 }
@@ -35,24 +44,32 @@ func NewFileManager() (*FileManager, error) {
 	}
 
 	appDir := filepath.Join(homeDir, AppDirName)
+	notesDir := filepath.Join(appDir, NotesDirName)
 	configPath := filepath.Join(appDir, ConfigFileName)
+	featuresPath := filepath.Join(appDir, FeaturesFileName)
 	optionsPath := filepath.Join(appDir, OptionsFileName)
 	goToFrequencyPath := filepath.Join(appDir, GoToFrequencyFileName)
 
 	return &FileManager{
-		HomeDir:          homeDir,
-		AppDir:           appDir,
-		ConfigPath:       configPath,
-		OptionsPath:      optionsPath,
+		HomeDir:           homeDir,
+		AppDir:            appDir,
+		NotesDir:          notesDir,
+		ConfigPath:        configPath,
+		FeaturesPath:      featuresPath,
+		OptionsPath:       optionsPath,
 		GoToFrequencyPath: goToFrequencyPath,
 	}, nil
 }
 
 func (m *FileManager) ensureAppDir() error {
-	if _, err := os.Stat(m.AppDir); os.IsNotExist(err) {
-		err := os.Mkdir(m.AppDir, 0755)
+	return m.ensureDir(m.AppDir)
+}
+
+func (m *FileManager) ensureDir(path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		err := os.Mkdir(path, 0755)
 		if err != nil {
-			return fmt.Errorf("ensureAppDir -> %v", err)
+			return fmt.Errorf("ensureDir -> %s %v", path, err)
 		}
 	}
 	return nil
@@ -75,9 +92,12 @@ func (m *FileManager) checkAndCreateFile(filePath string) error {
 		return err
 	}
 	if !exists {
-		_, err := os.Create(filePath)
+		file, err := os.Create(filePath)
 		if err != nil {
 			return fmt.Errorf("checkAndCreateFile -> %s %v", filePath, err)
+		}
+		if err := file.Close(); err != nil {
+			return fmt.Errorf("checkAndCreateFile -> close %s %v", filePath, err)
 		}
 	}
 	return nil
@@ -115,6 +135,22 @@ func (m *FileManager) WriteConfigContent(content string) error {
 	return nil
 }
 
+func (m *FileManager) GetFeaturesContent() (string, error) {
+	str, err := m.ReadFileContent(m.FeaturesPath)
+	if err != nil {
+		return "", fmt.Errorf("GetFeaturesContent -> %s %v", m.FeaturesPath, err)
+	}
+	return str, nil
+}
+
+func (m *FileManager) WriteFeaturesContent(content string) error {
+	err := m.WriteFileContent(m.FeaturesPath, content)
+	if err != nil {
+		return fmt.Errorf("WriteFeaturesContent -> %s: %v", m.FeaturesPath, err)
+	}
+	return nil
+}
+
 func (m *FileManager) GetOptionsContent() (string, error) {
 	str, err := m.ReadFileContent(m.OptionsPath)
 	if err != nil {
@@ -147,15 +183,76 @@ func (m *FileManager) WriteGoToFrequencyContent(content string) error {
 	return nil
 }
 
+func (m *FileManager) EnsureNotesDir() error {
+	return m.ensureDir(m.NotesDir)
+}
+
+func (m *FileManager) GetNotePath(title string) string {
+	return filepath.Join(m.NotesDir, noteFileName(title))
+}
+
+func (m *FileManager) EnsureNoteFile(title, content string) (string, error) {
+	if err := m.EnsureNotesDir(); err != nil {
+		return "", err
+	}
+
+	notePath := m.GetNotePath(title)
+	exists, err := m.CheckIfPathExists(notePath)
+	if err != nil {
+		return "", err
+	}
+
+	if !exists {
+		if err := m.WriteFileContent(notePath, content); err != nil {
+			return "", fmt.Errorf("EnsureNoteFile -> %s %v", notePath, err)
+		}
+	}
+
+	return notePath, nil
+}
+
+func (m *FileManager) SyncNotesContent(notes *OrderedMap) error {
+	if notes == nil {
+		return nil
+	}
+
+	for _, key := range notes.Keys {
+		if IsDividerKey(key) {
+			continue
+		}
+
+		content, ok := notes.Values[key]
+		if !ok {
+			continue
+		}
+
+		notePath, err := m.EnsureNoteFile(key, content)
+		if err != nil {
+			return fmt.Errorf("SyncNotesContent -> %s %v", key, err)
+		}
+
+		fileContent, err := m.ReadFileContent(notePath)
+		if err != nil {
+			return fmt.Errorf("SyncNotesContent -> read %s %v", notePath, err)
+		}
+		notes.Values[key] = fileContent
+	}
+
+	return nil
+}
+
 func (m *FileManager) BasicSetup() error {
 	if err := m.ensureAppDir(); err != nil {
 		return err
 	}
 
+	if err := m.EnsureNotesDir(); err != nil {
+		return err
+	}
+
 	files := []string{
 		m.ConfigPath,
-		m.OptionsPath,
-		m.GoToFrequencyPath,
+		m.FeaturesPath,
 	}
 
 	for _, file := range files {
@@ -174,4 +271,21 @@ func (m *FileManager) GetCurrentDirectoryName() (string, error) {
 	}
 
 	return filepath.Base(dir), nil
+}
+
+func noteFileName(title string) string {
+	fileName := strings.TrimSpace(title)
+	fileName = strings.ReplaceAll(fileName, "\\", "-")
+	fileName = filepath.Base(fileName)
+	fileName = strings.TrimSpace(fileName)
+
+	if fileName == "" || fileName == "." {
+		fileName = "untitled"
+	}
+
+	if filepath.Ext(fileName) == "" {
+		fileName += NoteFileExtension
+	}
+
+	return fileName
 }

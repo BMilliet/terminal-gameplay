@@ -3,7 +3,10 @@ package src
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
+
+const notePreviewMaxRunes = 64
 
 // ParseJSONContent parses JSON string into a struct
 func ParseJSONContent[T any](content string) (*T, error) {
@@ -29,8 +32,7 @@ func ConfigItemsToListItems(items OrderedMap) []ListItem {
 	listItems := []ListItem{}
 	for _, key := range items.Keys {
 		if value, ok := items.Values[key]; ok {
-			// Check if it's a divider (key starts with "div")
-			isDiv := len(key) >= 3 && key[:3] == "div"
+			isDiv := IsDividerKey(key)
 			listItems = append(listItems, ListItem{
 				T:     key,
 				D:     value,
@@ -39,6 +41,44 @@ func ConfigItemsToListItems(items OrderedMap) []ListItem {
 		}
 	}
 	return listItems
+}
+
+func ConfigNotesToListItems(items OrderedMap) []ListItem {
+	listItems := []ListItem{}
+	for _, key := range items.Keys {
+		if value, ok := items.Values[key]; ok {
+			isDiv := IsDividerKey(key)
+			description := value
+			if !isDiv {
+				description = NotePreview(value)
+			}
+
+			listItems = append(listItems, ListItem{
+				T:     key,
+				D:     description,
+				IsDiv: isDiv,
+			})
+		}
+	}
+	return listItems
+}
+
+func IsDividerKey(key string) bool {
+	return strings.HasPrefix(key, "div")
+}
+
+func NotePreview(text string) string {
+	preview := strings.Join(strings.Fields(text), " ")
+	if preview == "" {
+		return "(empty note)"
+	}
+
+	runes := []rune(preview)
+	if len(runes) <= notePreviewMaxRunes {
+		return preview
+	}
+
+	return string(runes[:notePreviewMaxRunes-3]) + "..."
 }
 
 // GetDefaultConfig returns default configuration

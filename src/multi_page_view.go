@@ -17,37 +17,38 @@ const (
 	CommandsPage
 	NotesPage
 	SettingsPage
+	FeaturesPage
 )
 
 type MultiPageViewModel struct {
-	config          *ConfigDTO
-	options         *OptionsDTO
-	goToFrequency   *GoToFrequencyDTO
-	currentPage     PageType
-	frequentList    []ListItem
-	goToList        []ListItem
-	commandList     []ListItem
-	notesList       []ListItem
-	settingsList    []ListItem
-	availPages      []PageType
-	pageIndex       int
-	cursor          int
-	viewportStart   int // First visible item index for scrolling
-	maxVisible      int // Maximum items to show at once
-	selected        *string
-	quitting        bool
-	styles          *Styles
+	config        *ConfigDTO
+	features      *FeaturesDTO
+	currentPage   PageType
+	frequentList  []ListItem
+	goToList      []ListItem
+	commandList   []ListItem
+	notesList     []ListItem
+	settingsList  []ListItem
+	featuresList  []ListItem
+	availPages    []PageType
+	pageIndex     int
+	cursor        int
+	viewportStart int // First visible item index for scrolling
+	maxVisible    int // Maximum items to show at once
+	selected      *string
+	quitting      bool
+	styles        *Styles
 	// Fuzzy find state
 	searchMode   bool
 	searchQuery  string
 	filteredList []ListItem
 }
 
-func NewMultiPageViewModel(config *ConfigDTO, options *OptionsDTO, goToFrequency *GoToFrequencyDTO) MultiPageViewModel {
+func NewMultiPageViewModel(config *ConfigDTO, features *FeaturesDTO) MultiPageViewModel {
 	// Build frequent list if enabled and has data
 	var frequentList []ListItem
-	if options.FrequentGoTo && !goToFrequency.IsEmpty() {
-		topKeys := goToFrequency.GetTopGoToKeys()
+	if features.FrequentGoTo && !features.FrequencyIsEmpty() {
+		topKeys := features.GetTopGoToKeys()
 		for _, key := range topKeys {
 			if value, exists := config.GoTo.Values[key]; exists {
 				frequentList = append(frequentList, ListItem{
@@ -60,7 +61,8 @@ func NewMultiPageViewModel(config *ConfigDTO, options *OptionsDTO, goToFrequency
 	}
 
 	// Build settings list
-	settingsList := buildSettingsList(options)
+	settingsList := buildSettingsList()
+	featuresList := buildFeaturesList(features)
 
 	// Build list of available pages (non-empty)
 	availPages := []PageType{}
@@ -76,7 +78,7 @@ func NewMultiPageViewModel(config *ConfigDTO, options *OptionsDTO, goToFrequency
 	if len(config.Commands.Keys) > 0 {
 		availPages = append(availPages, CommandsPage)
 	}
-	if len(config.Notes.Keys) > 0 {
+	if features.Notes {
 		availPages = append(availPages, NotesPage)
 	}
 
@@ -90,14 +92,14 @@ func NewMultiPageViewModel(config *ConfigDTO, options *OptionsDTO, goToFrequency
 
 	m := MultiPageViewModel{
 		config:        config,
-		options:       options,
-		goToFrequency: goToFrequency,
+		features:      features,
 		currentPage:   currentPage,
 		frequentList:  frequentList,
 		goToList:      ConfigItemsToListItems(config.GoTo),
 		commandList:   ConfigItemsToListItems(config.Commands),
-		notesList:     ConfigItemsToListItems(config.Notes),
+		notesList:     ConfigNotesToListItems(config.Notes),
 		settingsList:  settingsList,
+		featuresList:  featuresList,
 		availPages:    availPages,
 		pageIndex:     0,
 		cursor:        0,
@@ -132,7 +134,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.quitting = true
 			return m, tea.Quit
 
-		case "esc", "q":
+		case "esc":
 			// If in search mode, exit search mode
 			if m.searchMode {
 				m.searchMode = false
@@ -147,7 +149,26 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
+			if m.currentPage == FeaturesPage {
+				m.currentPage = SettingsPage
+				m.cursor = 0
+				m.viewportStart = 0
+				return m, nil
+			}
 			// Otherwise quit
+			*m.selected = ExitSignal
+			m.quitting = true
+			return m, tea.Quit
+
+		case "q":
+			if m.searchMode {
+				m.searchMode = false
+				m.searchQuery = ""
+				m.filteredList = []ListItem{}
+				m.cursor = 0
+				m.viewportStart = 0
+				return m, nil
+			}
 			*m.selected = ExitSignal
 			m.quitting = true
 			return m, tea.Quit
@@ -189,7 +210,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor = 0
 			m.viewportStart = 0
 			// Skip dividers at start of page
-			items := m.getCurrentList()
+			items := m.getActiveList()
 			for m.cursor < len(items) && items[m.cursor].IsDiv {
 				m.cursor++
 			}
@@ -210,13 +231,16 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor = 0
 			m.viewportStart = 0
 			// Skip dividers at start of page
-			items := m.getCurrentList()
+			items := m.getActiveList()
 			for m.cursor < len(items) && items[m.cursor].IsDiv {
 				m.cursor++
 			}
 
 		case "up":
-			items := m.getCurrentList()
+			items := m.getActiveList()
+			if len(items) == 0 {
+				return m, nil
+			}
 			if m.cursor > 0 {
 				m.cursor--
 				// Skip dividers when navigating up
@@ -243,7 +267,10 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "down":
-			items := m.getCurrentList()
+			items := m.getActiveList()
+			if len(items) == 0 {
+				return m, nil
+			}
 			if m.cursor < len(items)-1 {
 				m.cursor++
 				// Skip dividers when navigating down
@@ -269,6 +296,12 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			items := m.getActiveList()
 			if len(items) > 0 && m.cursor < len(items) {
 				selectedItem := items[m.cursor]
+				if m.currentPage == SettingsPage && selectedItem.T == "features" {
+					m.currentPage = FeaturesPage
+					m.cursor = 0
+					m.viewportStart = 0
+					return m, nil
+				}
 				result := fmt.Sprintf("%s|%s|%s", m.getPageName(), selectedItem.T, selectedItem.D)
 				*m.selected = result
 				m.quitting = true
@@ -276,6 +309,12 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		default:
+			if !m.searchMode && m.currentPage == NotesPage && msg.String() == "a" {
+				*m.selected = fmt.Sprintf("%s|%s|", m.getPageName(), AddNoteAction)
+				m.quitting = true
+				return m, tea.Quit
+			}
+
 			// Handle text input for search
 			if m.searchMode {
 				// Only accept single characters (letters, numbers, spaces, etc)
@@ -305,7 +344,7 @@ func (m MultiPageViewModel) View() string {
 	var tabViews []string
 	for _, page := range m.availPages {
 		pageName := m.getPageNameByType(page)
-		if page == m.currentPage {
+		if page == m.currentPage || (m.currentPage == FeaturesPage && page == SettingsPage) {
 			tabViews = append(tabViews, m.styles.Text(fmt.Sprintf("[ %s ]", pageName), m.styles.SelectedTitleColor))
 		} else {
 			tabViews = append(tabViews, m.styles.Text(fmt.Sprintf("  %s  ", pageName), m.styles.MutedTitleColor))
@@ -373,7 +412,7 @@ func (m MultiPageViewModel) View() string {
 
 			// Style for item box
 			var itemBox lipgloss.Style
-			var isSettingsPage = m.currentPage == SettingsPage
+			var isSettingsPage = m.currentPage == SettingsPage || m.currentPage == FeaturesPage
 
 			if m.cursor == i {
 				// Selected item - with bright border and indented
@@ -483,6 +522,10 @@ func (m MultiPageViewModel) View() string {
 	var helpText string
 	if m.searchMode {
 		helpText = "  type to search • ↑↓ navigate • enter select • esc cancel"
+	} else if m.currentPage == NotesPage {
+		helpText = "  a add • / search • ↑↓ navigate • enter select • q/esc quit"
+	} else if m.currentPage == FeaturesPage {
+		helpText = "  / search • ↑↓ navigate • enter toggle • esc back • q quit"
 	} else {
 		helpText = "  / search • ↑↓ navigate • enter select • q/esc quit"
 		if len(m.availPages) > 1 {
@@ -506,6 +549,8 @@ func (m MultiPageViewModel) getCurrentList() []ListItem {
 		return m.notesList
 	case SettingsPage:
 		return m.settingsList
+	case FeaturesPage:
+		return m.featuresList
 	default:
 		return []ListItem{}
 	}
@@ -523,6 +568,8 @@ func (m MultiPageViewModel) getPageName() string {
 		return "notes"
 	case SettingsPage:
 		return "settings"
+	case FeaturesPage:
+		return "features"
 	default:
 		return ""
 	}
@@ -540,13 +587,15 @@ func (m MultiPageViewModel) getPageNameByType(page PageType) string {
 		return "notes ✏️"
 	case SettingsPage:
 		return "settings ⚙️"
+	case FeaturesPage:
+		return "features"
 	default:
 		return ""
 	}
 }
 
-func MultiPageView(config *ConfigDTO, options *OptionsDTO, goToFrequency *GoToFrequencyDTO, selected *string) {
-	m := NewMultiPageViewModel(config, options, goToFrequency)
+func MultiPageView(config *ConfigDTO, features *FeaturesDTO, selected *string) {
+	m := NewMultiPageViewModel(config, features)
 	m.selected = selected
 
 	if _, err := tea.NewProgram(m).Run(); err != nil {
@@ -643,21 +692,13 @@ func (m MultiPageViewModel) highlightMatches(text, query string) string {
 	return result.String()
 }
 
-// buildSettingsList creates the settings items list based on current options
-func buildSettingsList(options *OptionsDTO) []ListItem {
+// buildSettingsList creates the settings items list.
+func buildSettingsList() []ListItem {
 	items := []ListItem{}
 
-	// Frequent GoTo setting
-	var frequentStatus string
-	if options.FrequentGoTo {
-		frequentStatus = "enabled ✓"
-	} else {
-		frequentStatus = "disabled ✗"
-	}
-
 	items = append(items, ListItem{
-		T:     "frequent_goTo",
-		D:     frequentStatus,
+		T:     "features",
+		D:     "configure feature flags",
 		IsDiv: false,
 	})
 
@@ -669,4 +710,28 @@ func buildSettingsList(options *OptionsDTO) []ListItem {
 	})
 
 	return items
+}
+
+func buildFeaturesList(features *FeaturesDTO) []ListItem {
+	items := []ListItem{
+		{
+			T:     "frequent_goTo",
+			D:     enabledStatus(features.FrequentGoTo),
+			IsDiv: false,
+		},
+		{
+			T:     "notes",
+			D:     enabledStatus(features.Notes),
+			IsDiv: false,
+		},
+	}
+
+	return items
+}
+
+func enabledStatus(enabled bool) string {
+	if enabled {
+		return "enabled ✓"
+	}
+	return "disabled ✗"
 }

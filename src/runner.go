@@ -27,28 +27,29 @@ func (r *Runner) Start() {
 		r.utils.HandleError(err, "Failed to initialize application")
 	}
 
-	// Load or create default options
-	optionsContent, err := r.fileManager.GetOptionsContent()
+	// Load or create default features
+	featuresContent, err := r.fileManager.GetFeaturesContent()
 	if err != nil {
-		r.utils.HandleError(err, "Failed to read options")
+		r.utils.HandleError(err, "Failed to read features")
 	}
 
-	var options *OptionsDTO
-	if optionsContent == "" {
-		// Create default options
-		options = GetDefaultOptions()
-		jsonStr, err := ToJSON(options)
+	var features *FeaturesDTO
+	if featuresContent == "" {
+		features = GetDefaultFeatures()
+		r.migrateLegacyFeatures(features)
+		jsonStr, err := ToJSON(features)
 		if err != nil {
-			r.utils.HandleError(err, "Failed to create default options")
+			r.utils.HandleError(err, "Failed to create default features")
 		}
-		if err := r.fileManager.WriteOptionsContent(jsonStr); err != nil {
-			r.utils.HandleError(err, "Failed to write default options")
+		if err := r.fileManager.WriteFeaturesContent(jsonStr); err != nil {
+			r.utils.HandleError(err, "Failed to write default features")
 		}
 	} else {
-		options, err = ParseJSONContent[OptionsDTO](optionsContent)
+		features, err = ParseJSONContent[FeaturesDTO](featuresContent)
 		if err != nil {
-			r.utils.HandleError(err, "Failed to parse options.json")
+			r.utils.HandleError(err, "Failed to parse features.json")
 		}
+		features.Normalize()
 	}
 
 	// Load or create default config
@@ -75,126 +76,177 @@ func (r *Runner) Start() {
 		}
 	}
 
-	// Load or create default goTo frequency
-	goToFreqContent, err := r.fileManager.GetGoToFrequencyContent()
+	if features.Notes {
+		if err := r.fileManager.SyncNotesContent(&config.Notes); err != nil {
+			r.utils.HandleError(err, "Failed to initialize notes")
+		}
+	}
+
+	for {
+		// Show multi-page view
+		result := r.viewBuilder.NewMultiPageView(config, features)
+		r.utils.ValidateInput(result)
+
+		// Parse result: "page|label|value"
+		parts := strings.SplitN(result, "|", 3)
+		if len(parts) != 3 {
+			return
+		}
+
+		page := parts[0]
+		label := parts[1]
+		value := parts[2]
+
+		// Handle based on page type
+		switch page {
+		case "settings":
+			// Handle settings toggle
+			switch label {
+			case "clear_frequency":
+				// Clear the frequency history
+				features.Frequencies = make(map[string]int)
+				jsonStr, err := ToJSON(features)
+				if err != nil {
+					r.utils.HandleError(err, "Failed to serialize features")
+				}
+				if err := r.fileManager.WriteFeaturesContent(jsonStr); err != nil {
+					r.utils.HandleError(err, "Failed to write features")
+				}
+
+				println(styles.Text("✓ Frequency history cleared", styles.AquamarineColor))
+			}
+			return
+
+		case "features":
+			switch label {
+			case "frequent_goTo":
+				features.FrequentGoTo = !features.FrequentGoTo
+			case "notes":
+				features.Notes = !features.Notes
+				if features.Notes {
+					if err := r.fileManager.SyncNotesContent(&config.Notes); err != nil {
+						r.utils.HandleError(err, "Failed to initialize notes")
+					}
+				}
+			}
+
+			jsonStr, err := ToJSON(features)
+			if err != nil {
+				r.utils.HandleError(err, "Failed to serialize features")
+			}
+			if err := r.fileManager.WriteFeaturesContent(jsonStr); err != nil {
+				r.utils.HandleError(err, "Failed to write features")
+			}
+
+			continue
+
+		case "goTo", "frequent":
+			// Increment goTo frequency counter if it's a goTo navigation
+			if features.FrequentGoTo {
+				features.IncrementGoTo(label)
+				jsonStr, err := ToJSON(features)
+				if err != nil {
+					r.utils.HandleError(err, "Failed to serialize features")
+				}
+				if err := r.fileManager.WriteFeaturesContent(jsonStr); err != nil {
+					r.utils.HandleError(err, "Failed to write features")
+				}
+			}
+
+			// Expand ~ to home directory
+			expandedPath := r.utils.ExpandPath(value)
+
+			// Write cd command to file
+			cmdFile := r.fileManager.(*FileManager).AppDir + "/cmd-exec"
+			command := fmt.Sprintf("cd %s", expandedPath)
+
+			if err := r.fileManager.WriteFileContent(cmdFile, command); err != nil {
+				r.utils.HandleError(err, "Failed to write command file")
+			}
+			return
+
+		case "commands":
+			println(styles.Text("\n⚠️  Commands execution not implemented yet", styles.ErrorColor))
+			return
+
+		case "notes":
+			if label == AddNoteAction {
+				if err := r.createNote(config); err != nil {
+					r.utils.HandleError(err, "Failed to create note")
+				}
+				continue
+			}
+
+			noteContent, ok := config.Notes.Get(label)
+			if !ok {
+				noteContent = value
+			}
+
+			notePath, err := r.fileManager.EnsureNoteFile(label, noteContent)
+			if err != nil {
+				r.utils.HandleError(err, "Failed to prepare note")
+			}
+
+			if err := r.utils.OpenInNvim(notePath); err != nil {
+				r.utils.HandleError(err, "Failed to open note in nvim")
+			}
+
+			if err := r.fileManager.SyncNotesContent(&config.Notes); err != nil {
+				r.utils.HandleError(err, "Failed to reload notes")
+			}
+		}
+	}
+}
+
+func (r *Runner) createNote(config *ConfigDTO) error {
+	noteName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New note filename", "daily-note.md"))
+	if noteName == ExitSignal || noteName == "" {
+		return nil
+	}
+
+	notePath, err := r.fileManager.EnsureNoteFile(noteName, "")
 	if err != nil {
-		r.utils.HandleError(err, "Failed to read goTo frequency")
+		return err
 	}
 
-	var goToFrequency *GoToFrequencyDTO
-	if goToFreqContent == "" {
-		// Create default goTo frequency
-		goToFrequency = GetDefaultGoToFrequency()
-		jsonStr, err := ToJSON(goToFrequency)
-		if err != nil {
-			r.utils.HandleError(err, "Failed to create default goTo frequency")
-		}
-		if err := r.fileManager.WriteGoToFrequencyContent(jsonStr); err != nil {
-			r.utils.HandleError(err, "Failed to write default goTo frequency")
-		}
-	} else {
-		goToFrequency, err = ParseJSONContent[GoToFrequencyDTO](goToFreqContent)
-		if err != nil {
-			r.utils.HandleError(err, "Failed to parse goto_frequency.json")
+	if err := r.utils.OpenInNvim(notePath); err != nil {
+		return err
+	}
+
+	content, err := r.fileManager.ReadFileContent(notePath)
+	if err != nil {
+		return err
+	}
+
+	config.Notes.Set(noteName, content)
+	jsonStr, err := ToJSON(config)
+	if err != nil {
+		return err
+	}
+
+	if err := r.fileManager.WriteConfigContent(jsonStr); err != nil {
+		return err
+	}
+
+	return r.fileManager.SyncNotesContent(&config.Notes)
+}
+
+func (r *Runner) migrateLegacyFeatures(features *FeaturesDTO) {
+	optionsContent, err := r.fileManager.GetOptionsContent()
+	if err == nil && strings.TrimSpace(optionsContent) != "" {
+		options, err := ParseJSONContent[OptionsDTO](optionsContent)
+		if err == nil {
+			features.FrequentGoTo = options.FrequentGoTo
 		}
 	}
 
-	// Check if all pages are empty
-	if len(config.GoTo.Keys) == 0 && len(config.Commands.Keys) == 0 && len(config.Notes.Keys) == 0 {
-		println(styles.Text("\n⚠️  All pages are empty!", styles.ErrorColor))
-		println(styles.Text("\nPlease edit your config file:", styles.TitleColor))
-		println(styles.Text("  "+r.fileManager.(*FileManager).ConfigPath, styles.FooterColor))
-		println()
-		return
+	goToFreqContent, err := r.fileManager.GetGoToFrequencyContent()
+	if err == nil && strings.TrimSpace(goToFreqContent) != "" {
+		goToFrequency, err := ParseJSONContent[GoToFrequencyDTO](goToFreqContent)
+		if err == nil && goToFrequency.Frequencies != nil {
+			features.Frequencies = goToFrequency.Frequencies
+		}
 	}
 
-	// Show multi-page view
-	result := r.viewBuilder.NewMultiPageView(config, options, goToFrequency)
-	r.utils.ValidateInput(result)
-
-	// Parse result: "page|label|value"
-	parts := strings.Split(result, "|")
-	if len(parts) != 3 {
-		return
-	}
-
-	page := parts[0]
-	label := parts[1]
-	value := parts[2]
-
-	// Handle based on page type
-	switch page {
-	case "settings":
-		// Handle settings toggle
-		switch label {
-		case "frequent_goTo":
-			// Toggle the frequent_goTo option
-			options.FrequentGoTo = !options.FrequentGoTo
-
-			// Save the updated options
-			jsonStr, err := ToJSON(options)
-			if err != nil {
-				r.utils.HandleError(err, "Failed to serialize options")
-			}
-			if err := r.fileManager.WriteOptionsContent(jsonStr); err != nil {
-				r.utils.HandleError(err, "Failed to write options")
-			}
-
-			var statusMsg string
-			if options.FrequentGoTo {
-				statusMsg = "✓ Frequent GoTo enabled"
-			} else {
-				statusMsg = "✓ Frequent GoTo disabled"
-			}
-			println(styles.Text(statusMsg, styles.AquamarineColor))
-
-		case "clear_frequency":
-			// Clear the frequency history
-			emptyFrequency := GetDefaultGoToFrequency()
-			jsonStr, err := ToJSON(emptyFrequency)
-			if err != nil {
-				r.utils.HandleError(err, "Failed to serialize goTo frequency")
-			}
-			if err := r.fileManager.WriteGoToFrequencyContent(jsonStr); err != nil {
-				r.utils.HandleError(err, "Failed to write goTo frequency")
-			}
-
-			println(styles.Text("✓ Frequency history cleared", styles.AquamarineColor))
-		}
-
-	case "goTo", "frequent":
-		// Increment goTo frequency counter if it's a goTo navigation
-		if options.FrequentGoTo {
-			goToFrequency.IncrementGoTo(label)
-			jsonStr, err := ToJSON(goToFrequency)
-			if err != nil {
-				r.utils.HandleError(err, "Failed to serialize goTo frequency")
-			}
-			if err := r.fileManager.WriteGoToFrequencyContent(jsonStr); err != nil {
-				r.utils.HandleError(err, "Failed to write goTo frequency")
-			}
-		}
-
-		// Expand ~ to home directory
-		expandedPath := r.utils.ExpandPath(value)
-
-		// Write cd command to file
-		cmdFile := r.fileManager.(*FileManager).AppDir + "/cmd-exec"
-		command := fmt.Sprintf("cd %s", expandedPath)
-
-		if err := r.fileManager.WriteFileContent(cmdFile, command); err != nil {
-			r.utils.HandleError(err, "Failed to write command file")
-		}
-
-	case "commands":
-		println(styles.Text("\n⚠️  Commands execution not implemented yet", styles.ErrorColor))
-
-	case "notes":
-		// Copy value to clipboard
-		if err := r.utils.CopyToClipboard(value); err != nil {
-			r.utils.HandleError(err, "Failed to copy to clipboard")
-		}
-
-		println(styles.Text("✓ Copied to clipboard: "+value, styles.AquamarineColor))
-	}
+	features.Normalize()
 }
