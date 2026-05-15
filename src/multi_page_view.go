@@ -3,7 +3,9 @@ package src
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -14,7 +16,20 @@ const (
 	minContentWidth     = 72
 	screenGutterWidth   = 4
 	rowChromeWidth      = 4
+	headerTickDuration  = 140 * time.Millisecond
+	gradientSteps       = 14
 )
+
+var headerGradientPalette = []string{
+	"#F5C2E7", // pink
+	"#CBA6F7", // mauve
+	"#F38BA8", // red
+	"#FAB387", // peach
+	"#F9E2AF", // yellow
+	"#CBA6F7", // mauve
+}
+
+type headerTickMsg time.Time
 
 type PageType int
 
@@ -46,6 +61,7 @@ type MultiPageViewModel struct {
 	quitting      bool
 	styles        *Styles
 	terminalWidth int
+	headerFrame   int
 	// Fuzzy find state
 	searchMode   bool
 	searchQuery  string
@@ -131,7 +147,7 @@ func NewMultiPageViewModel(config *ConfigDTO, features *FeaturesDTO) MultiPageVi
 }
 
 func (m MultiPageViewModel) Init() tea.Cmd {
-	return nil
+	return tickHeader()
 }
 
 func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -139,6 +155,13 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.terminalWidth = msg.Width
 		return m, nil
+
+	case headerTickMsg:
+		if m.quitting {
+			return m, nil
+		}
+		m.headerFrame++
+		return m, tickHeader()
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -419,21 +442,9 @@ func (m MultiPageViewModel) View() string {
 func (m MultiPageViewModel) renderHeader() string {
 	var b strings.Builder
 
-	wordmark := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#11151C")).
-		Background(m.styles.SelectedTitleColor).
-		Bold(true).
-		Padding(0, 1).
-		Render("tg")
-
-	context := lipgloss.NewStyle().
-		Foreground(m.styles.TitleColor).
-		Bold(true).
-		Render("terminal-gameplay")
-
-	page := lipgloss.NewStyle().
-		Foreground(m.styles.FooterColor).
-		Render(m.getPageName())
+	wordmark := m.renderGradientBadge(" tg ", 0)
+	context := m.renderGradientText("terminal-gameplay", 10, true)
+	page := m.renderGradientText(m.getPageName(), 44, false)
 
 	meta := lipgloss.JoinHorizontal(
 		lipgloss.Center,
@@ -465,8 +476,9 @@ func (m MultiPageViewModel) renderTabs() string {
 		prefix := " "
 
 		if active {
+			accent := m.gradientColor(12)
 			tabStyle = tabStyle.
-				Foreground(m.styles.SelectedTitleColor).
+				Foreground(accent).
 				Background(lipgloss.Color("#313244")).
 				Bold(true)
 			prefix = "▌"
@@ -476,6 +488,42 @@ func (m MultiPageViewModel) renderTabs() string {
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+}
+
+func (m MultiPageViewModel) renderGradientBadge(text string, offset int) string {
+	var b strings.Builder
+	for i, r := range []rune(text) {
+		b.WriteString(lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#1E1E2E")).
+			Background(m.gradientColor(offset + i*5)).
+			Bold(true).
+			Render(string(r)))
+	}
+	return b.String()
+}
+
+func (m MultiPageViewModel) renderGradientText(text string, offset int, bold bool) string {
+	var b strings.Builder
+	for i, r := range []rune(text) {
+		b.WriteString(lipgloss.NewStyle().
+			Foreground(m.gradientColor(offset + i*4)).
+			Bold(bold).
+			Render(string(r)))
+	}
+	return b.String()
+}
+
+func (m MultiPageViewModel) gradientColor(offset int) lipgloss.Color {
+	phase := positiveMod(m.headerFrame*2+offset, len(headerGradientPalette)*gradientSteps)
+	current := phase / gradientSteps
+	next := (current + 1) % len(headerGradientPalette)
+	step := phase % gradientSteps
+
+	from := mustParseHexColor(headerGradientPalette[current])
+	to := mustParseHexColor(headerGradientPalette[next])
+	mixed := mixRGB(from, to, step, gradientSteps)
+
+	return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", mixed.r, mixed.g, mixed.b))
 }
 
 func (m MultiPageViewModel) renderSearchBox() string {
@@ -675,6 +723,51 @@ func truncateToWidth(text string, maxWidth int) string {
 	return string(runes)
 }
 
+type rgbColor struct {
+	r int
+	g int
+	b int
+}
+
+func mustParseHexColor(hex string) rgbColor {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		return rgbColor{}
+	}
+
+	r, errR := strconv.ParseInt(hex[0:2], 16, 0)
+	g, errG := strconv.ParseInt(hex[2:4], 16, 0)
+	b, errB := strconv.ParseInt(hex[4:6], 16, 0)
+	if errR != nil || errG != nil || errB != nil {
+		return rgbColor{}
+	}
+
+	return rgbColor{r: int(r), g: int(g), b: int(b)}
+}
+
+func mixRGB(from, to rgbColor, step, totalSteps int) rgbColor {
+	if totalSteps <= 0 {
+		return from
+	}
+
+	return rgbColor{
+		r: from.r + ((to.r-from.r)*step)/totalSteps,
+		g: from.g + ((to.g-from.g)*step)/totalSteps,
+		b: from.b + ((to.b-from.b)*step)/totalSteps,
+	}
+}
+
+func positiveMod(value, modulo int) int {
+	if modulo == 0 {
+		return 0
+	}
+	result := value % modulo
+	if result < 0 {
+		result += modulo
+	}
+	return result
+}
+
 func (m MultiPageViewModel) getCurrentList() []ListItem {
 	switch m.currentPage {
 	case FrequentPage:
@@ -730,6 +823,12 @@ func (m MultiPageViewModel) getPageNameByType(page PageType) string {
 	default:
 		return ""
 	}
+}
+
+func tickHeader() tea.Cmd {
+	return tea.Tick(headerTickDuration, func(t time.Time) tea.Msg {
+		return headerTickMsg(t)
+	})
 }
 
 func MultiPageView(config *ConfigDTO, features *FeaturesDTO, selected *string) {
