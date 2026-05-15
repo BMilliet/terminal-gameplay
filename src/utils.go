@@ -13,6 +13,7 @@ type UtilsInterface interface {
 	ExitWithError(message string)
 	HandleError(err error, message string)
 	ExpandPath(path string) string
+	ContractPath(path string) string
 	ExecuteCommand(command string) error
 	CopyToClipboard(text string) error
 	OpenInNvim(filePath string) error
@@ -56,6 +57,24 @@ func (u *Utils) ExpandPath(path string) string {
 		}
 		return filepath.Join(home, path[2:])
 	}
+	return path
+}
+
+func (u *Utils) ContractPath(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+
+	if path == home {
+		return "~"
+	}
+
+	homePrefix := home + string(os.PathSeparator)
+	if strings.HasPrefix(path, homePrefix) {
+		return "~/" + strings.TrimPrefix(path, homePrefix)
+	}
+
 	return path
 }
 

@@ -97,9 +97,7 @@ func NewMultiPageViewModel(config *ConfigDTO, features *FeaturesDTO) MultiPageVi
 		availPages = append(availPages, FrequentPage)
 	}
 
-	if len(config.GoTo.Keys) > 0 {
-		availPages = append(availPages, GoToPage)
-	}
+	availPages = append(availPages, GoToPage)
 	if features.Scripts {
 		availPages = append(availPages, ScriptsPage)
 	}
@@ -378,6 +376,12 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			m.pendingDelete = false
 
+			if !m.searchMode && m.currentPage == GoToPage && msg.String() == "a" {
+				*m.selected = fmt.Sprintf("%s|%s|", m.getPageName(), AddGoToAction)
+				m.quitting = true
+				return m, tea.Quit
+			}
+
 			if !m.searchMode && m.currentPage == NotesPage && msg.String() == "a" {
 				*m.selected = fmt.Sprintf("%s|%s|", m.getPageName(), AddNoteAction)
 				m.quitting = true
@@ -576,6 +580,8 @@ func (m MultiPageViewModel) renderEmptyState() string {
 	message := "no items"
 	if m.searchMode {
 		message = "no matches"
+	} else if m.currentPage == GoToPage {
+		message = "no goTo items yet. press a to add current directory"
 	} else if m.currentPage == NotesPage {
 		message = "no notes yet. press a to add one"
 	} else if m.currentPage == ScriptsPage {
@@ -686,6 +692,8 @@ func (m MultiPageViewModel) renderFooter() string {
 		helpText = "press d again to delete  /  esc cancel"
 	} else if m.searchMode {
 		helpText = "type to search  /  up down navigate  /  enter select  /  esc cancel"
+	} else if m.currentPage == GoToPage {
+		helpText = "a add current path  /  dd delete  /  / search  /  left right switch  /  enter select  /  q esc quit"
 	} else if m.currentPage == NotesPage {
 		helpText = "a add  /  dd delete  /  / search  /  up down navigate  /  enter open  /  q esc quit"
 	} else if m.currentPage == ScriptsPage {
@@ -820,7 +828,7 @@ func (m MultiPageViewModel) getCurrentList() []ListItem {
 }
 
 func (m MultiPageViewModel) canDeleteCurrentPage() bool {
-	return m.currentPage == NotesPage || m.currentPage == ScriptsPage
+	return m.currentPage == GoToPage || m.currentPage == NotesPage || m.currentPage == ScriptsPage
 }
 
 func (m MultiPageViewModel) selectedActionItem() (ListItem, bool) {
@@ -838,6 +846,9 @@ func (m MultiPageViewModel) selectedActionItem() (ListItem, bool) {
 }
 
 func (m MultiPageViewModel) deleteActionForCurrentPage() string {
+	if m.currentPage == GoToPage {
+		return DeleteGoToAction
+	}
 	if m.currentPage == NotesPage {
 		return DeleteNoteAction
 	}

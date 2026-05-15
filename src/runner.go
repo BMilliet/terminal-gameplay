@@ -2,6 +2,7 @@ package src
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -164,6 +165,23 @@ func (r *Runner) Start() {
 			continue
 
 		case "goTo", "frequent":
+			if page == "goTo" {
+				switch label {
+				case AddGoToAction:
+					if err := r.createGoTo(config); err != nil {
+						r.utils.HandleError(err, "Failed to create goTo")
+					}
+					continue
+				case DeleteGoToAction:
+					if r.confirmDelete("goTo", value) {
+						if err := r.deleteGoTo(config, features, value); err != nil {
+							r.utils.HandleError(err, "Failed to delete goTo")
+						}
+					}
+					continue
+				}
+			}
+
 			// Increment goTo frequency counter if it's a goTo navigation
 			if features.FrequentGoTo {
 				features.IncrementGoTo(label)
@@ -256,6 +274,89 @@ func (r *Runner) Start() {
 	}
 }
 
+func (r *Runner) createGoTo(config *ConfigDTO) error {
+	currentPath, err := r.fileManager.GetCurrentPath()
+	if err != nil {
+		return err
+	}
+
+	contractedPath := r.utils.ContractPath(currentPath)
+	defaultName := filepath.Base(currentPath)
+	if contractedPath == "~" {
+		defaultName = "home"
+	}
+	if defaultName == "." || defaultName == string(filepath.Separator) {
+		defaultName = "home"
+	}
+
+	goToName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New goTo name", defaultName))
+	if goToName == ExitSignal || goToName == "" {
+		return nil
+	}
+	if IsDividerKey(goToName) {
+		return fmt.Errorf("goTo name cannot start with div")
+	}
+
+	if _, exists := config.GoTo.Get(goToName); exists {
+		if !r.viewBuilder.NewConfirmView(fmt.Sprintf("Replace goTo %q?", goToName)) {
+			return nil
+		}
+	}
+
+	sectionKey, ok, err := r.selectGoToSection(config)
+	if err != nil || !ok {
+		return err
+	}
+
+	config.GoTo.InsertInSection(sectionKey, goToName, contractedPath)
+	return r.writeConfig(config)
+}
+
+func (r *Runner) selectGoToSection(config *ConfigDTO) (string, bool, error) {
+	for {
+		selected := r.viewBuilder.NewSectionSelectView("Select goTo section", buildGoToSectionOptions(config.GoTo))
+		if selected.T == ExitSignal {
+			return "", false, nil
+		}
+
+		if selected.T != AddGoToSectionAction {
+			return selected.T, true, nil
+		}
+
+		sectionName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New section name", "work"))
+		if sectionName == ExitSignal {
+			return "", false, nil
+		}
+		if sectionName == "" {
+			continue
+		}
+
+		return config.GoTo.AddDivider(sectionName), true, nil
+	}
+}
+
+func buildGoToSectionOptions(goTo OrderedMap) []ListItem {
+	sections := []ListItem{
+		{
+			T: RootGoToSection,
+			D: "top / no section",
+		},
+	}
+
+	for _, key := range goTo.Keys {
+		if !IsDividerKey(key) {
+			continue
+		}
+
+		sections = append(sections, ListItem{
+			T: key,
+			D: goTo.Values[key],
+		})
+	}
+
+	return sections
+}
+
 func (r *Runner) createNote(config *ConfigDTO) error {
 	noteName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New note filename", "daily-note.md"))
 	if noteName == ExitSignal || noteName == "" {
@@ -334,6 +435,23 @@ func (r *Runner) editScript(scriptName string) error {
 	return r.utils.OpenInNvim(scriptPath)
 }
 
+func (r *Runner) deleteGoTo(config *ConfigDTO, features *FeaturesDTO, goToName string) error {
+	goToName = strings.TrimSpace(goToName)
+	if goToName == "" {
+		return nil
+	}
+
+	config.GoTo.Delete(goToName)
+	if features.Frequencies != nil {
+		delete(features.Frequencies, goToName)
+	}
+
+	if err := r.writeConfig(config); err != nil {
+		return err
+	}
+	return r.writeFeatures(features)
+}
+
 func (r *Runner) deleteNote(config *ConfigDTO, noteName string) error {
 	noteName = strings.TrimSpace(noteName)
 	if noteName == "" {
@@ -386,6 +504,15 @@ func (r *Runner) writeConfig(config *ConfigDTO) error {
 	}
 
 	return r.fileManager.WriteConfigContent(jsonStr)
+}
+
+func (r *Runner) writeFeatures(features *FeaturesDTO) error {
+	jsonStr, err := ToJSON(features)
+	if err != nil {
+		return err
+	}
+
+	return r.fileManager.WriteFeaturesContent(jsonStr)
 }
 
 func (r *Runner) migrateLegacyFeatures(features *FeaturesDTO) {

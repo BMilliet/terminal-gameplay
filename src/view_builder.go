@@ -3,6 +3,7 @@ package src
 type ViewBuilderInterface interface {
 	NewListView(title string, op []ListItem, height int) ListItem
 	NewConfirmView(title string) bool
+	NewSectionSelectView(title string, sections []ListItem) ListItem
 	NewTextFieldView(title, placeHolder string) string
 	NewMultiPageView(config *ConfigDTO, features *FeaturesDTO) string
 }
@@ -23,6 +24,12 @@ func (b *ViewBuilder) NewConfirmView(title string) bool {
 	confirmed := false
 	ConfirmView(title, &confirmed)
 	return confirmed
+}
+
+func (b *ViewBuilder) NewSectionSelectView(title string, sections []ListItem) ListItem {
+	selected := ListItem{}
+	SectionSelectView(title, sections, &selected)
+	return selected
 }
 
 func (b *ViewBuilder) NewTextFieldView(title, placeHolder string) string {

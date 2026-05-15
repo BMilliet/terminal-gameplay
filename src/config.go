@@ -156,6 +156,68 @@ func (om *OrderedMap) Delete(key string) {
 	}
 }
 
+func (om *OrderedMap) InsertInSection(sectionKey, key, value string) {
+	if om.Values == nil {
+		om.Values = make(map[string]string)
+	}
+
+	om.Delete(key)
+
+	insertIndex := om.sectionInsertIndex(sectionKey)
+	if insertIndex > len(om.Keys) {
+		insertIndex = len(om.Keys)
+	}
+
+	om.Keys = append(om.Keys, "")
+	copy(om.Keys[insertIndex+1:], om.Keys[insertIndex:])
+	om.Keys[insertIndex] = key
+	om.Values[key] = value
+}
+
+func (om *OrderedMap) AddDivider(label string) string {
+	key := om.NextDividerKey()
+	om.Set(key, label)
+	return key
+}
+
+func (om OrderedMap) NextDividerKey() string {
+	if _, exists := om.Values["div"]; !exists {
+		return "div"
+	}
+
+	for i := 1; ; i++ {
+		key := fmt.Sprintf("div%d", i)
+		if _, exists := om.Values[key]; !exists {
+			return key
+		}
+	}
+}
+
+func (om OrderedMap) sectionInsertIndex(sectionKey string) int {
+	if sectionKey == RootGoToSection {
+		for i, key := range om.Keys {
+			if IsDividerKey(key) {
+				return i
+			}
+		}
+		return len(om.Keys)
+	}
+
+	for i, key := range om.Keys {
+		if key != sectionKey {
+			continue
+		}
+
+		insertIndex := i + 1
+		for insertIndex < len(om.Keys) && !IsDividerKey(om.Keys[insertIndex]) {
+			insertIndex++
+		}
+		return insertIndex
+	}
+
+	return len(om.Keys)
+}
+
 // Len returns the number of items
 func (om OrderedMap) Len() int {
 	return len(om.Keys)

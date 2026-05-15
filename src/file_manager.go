@@ -30,6 +30,7 @@ type FileManagerInterface interface {
 	SyncNotesContent(notes *OrderedMap) error
 	SyncScriptsFiles(scripts *OrderedMap) error
 	BasicSetup() error
+	GetCurrentPath() (string, error)
 	GetCurrentDirectoryName() (string, error)
 }
 
@@ -344,6 +345,15 @@ func (m *FileManager) BasicSetup() error {
 	}
 
 	return nil
+}
+
+func (m *FileManager) GetCurrentPath() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("GetCurrentPath -> %v", err)
+	}
+
+	return dir, nil
 }
 
 func (m *FileManager) GetCurrentDirectoryName() (string, error) {
