@@ -16,6 +16,7 @@ type UtilsInterface interface {
 	ExecuteCommand(command string) error
 	CopyToClipboard(text string) error
 	OpenInNvim(filePath string) error
+	RunLuaScript(filePath string) error
 	ChangeDirectory(path string) error
 }
 
@@ -98,6 +99,30 @@ func (u *Utils) OpenInNvim(filePath string) error {
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	return cmd.Run()
+}
+
+func (u *Utils) RunLuaScript(filePath string) error {
+	runner, err := findLuaRunner()
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.Command(runner, filePath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
+}
+
+func findLuaRunner() (string, error) {
+	for _, candidate := range []string{"lua", "lua5.4", "lua5.3", "luajit"} {
+		runner, err := exec.LookPath(candidate)
+		if err == nil {
+			return runner, nil
+		}
+	}
+
+	return "", fmt.Errorf("lua not found in PATH")
 }
 
 func (u *Utils) ChangeDirectory(path string) error {

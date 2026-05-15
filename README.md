@@ -1,11 +1,11 @@
 # Terminal Gameplay (tg)
 
-A powerful terminal productivity tool that provides quick access to directories (goTo), custom commands, and notes through an intuitive TUI (Terminal User Interface).
+A powerful terminal productivity tool that provides quick access to directories (goTo), Lua scripts, and notes through an intuitive TUI (Terminal User Interface).
 
 ## Features
 
 - 🚀 **GoTo**: Quickly navigate to your frequently used directories
-- ⚡ **Commands**: Store and execute custom shell commands with ease
+- ⚡ **Scripts**: Create, edit, and execute Lua scripts with confirmation
 - 📝 **Notes**: Keep quick notes and snippets at your fingertips
 
 ## Installation
@@ -14,6 +14,7 @@ A powerful terminal productivity tool that provides quick access to directories 
 
 - Go 1.25.6 or higher
 - Git
+- Lua (`lua`, `lua5.4`, `lua5.3`, or `luajit`) for script execution
 
 ### Build from Source
 
@@ -127,14 +128,16 @@ On first run, `tg` creates a configuration file at `~/.terminal-gameplay/config.
     "home": "~",
     "projects": "~/projects"
   },
-  "commands": {
-    "update": "sudo apt update && sudo apt upgrade"
+  "scripts": {
+    "update.lua": "Update local packages"
   },
   "notes": {
     "reminder": "Don't forget to commit your changes!"
   }
 }
 ```
+
+Script descriptions live in `config.json`; the Lua files themselves are stored in `~/.terminal-gameplay/scripts`.
 
 #### Visual Dividers
 
@@ -159,4 +162,3 @@ You can organize your lists with visual dividers to separate items into sections
 - They cannot be selected - navigation automatically skips them
 - Use any text after `div` key to identify different dividers (since JSON doesn't allow duplicate keys)
 - Great for grouping related items visually
-

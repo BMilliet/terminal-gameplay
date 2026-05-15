@@ -1,9 +1,13 @@
 package src
 
-import "sort"
+import (
+	"encoding/json"
+	"sort"
+)
 
 type FeaturesDTO struct {
 	FrequentGoTo bool           `json:"frequent_goTo"`
+	Scripts      bool           `json:"scripts"`
 	Notes        bool           `json:"notes"`
 	Frequencies  map[string]int `json:"frequencies"`
 }
@@ -11,9 +15,43 @@ type FeaturesDTO struct {
 func GetDefaultFeatures() *FeaturesDTO {
 	return &FeaturesDTO{
 		FrequentGoTo: true,
+		Scripts:      true,
 		Notes:        true,
 		Frequencies:  make(map[string]int),
 	}
+}
+
+func (f *FeaturesDTO) UnmarshalJSON(data []byte) error {
+	type featuresJSON struct {
+		FrequentGoTo *bool          `json:"frequent_goTo"`
+		Scripts      *bool          `json:"scripts"`
+		Notes        *bool          `json:"notes"`
+		Frequencies  map[string]int `json:"frequencies"`
+	}
+
+	defaults := GetDefaultFeatures()
+	*f = *defaults
+
+	var parsed featuresJSON
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return err
+	}
+
+	if parsed.FrequentGoTo != nil {
+		f.FrequentGoTo = *parsed.FrequentGoTo
+	}
+	if parsed.Scripts != nil {
+		f.Scripts = *parsed.Scripts
+	}
+	if parsed.Notes != nil {
+		f.Notes = *parsed.Notes
+	}
+	if parsed.Frequencies != nil {
+		f.Frequencies = parsed.Frequencies
+	}
+
+	f.Normalize()
+	return nil
 }
 
 func (f *FeaturesDTO) Normalize() {

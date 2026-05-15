@@ -9,12 +9,19 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const (
+	defaultContentWidth = 112
+	minContentWidth     = 72
+	screenGutterWidth   = 4
+	rowChromeWidth      = 4
+)
+
 type PageType int
 
 const (
 	FrequentPage PageType = iota
 	GoToPage
-	CommandsPage
+	ScriptsPage
 	NotesPage
 	SettingsPage
 	FeaturesPage
@@ -26,7 +33,7 @@ type MultiPageViewModel struct {
 	currentPage   PageType
 	frequentList  []ListItem
 	goToList      []ListItem
-	commandList   []ListItem
+	scriptList    []ListItem
 	notesList     []ListItem
 	settingsList  []ListItem
 	featuresList  []ListItem
@@ -38,6 +45,7 @@ type MultiPageViewModel struct {
 	selected      *string
 	quitting      bool
 	styles        *Styles
+	terminalWidth int
 	// Fuzzy find state
 	searchMode   bool
 	searchQuery  string
@@ -75,8 +83,8 @@ func NewMultiPageViewModel(config *ConfigDTO, features *FeaturesDTO) MultiPageVi
 	if len(config.GoTo.Keys) > 0 {
 		availPages = append(availPages, GoToPage)
 	}
-	if len(config.Commands.Keys) > 0 {
-		availPages = append(availPages, CommandsPage)
+	if features.Scripts {
+		availPages = append(availPages, ScriptsPage)
 	}
 	if features.Notes {
 		availPages = append(availPages, NotesPage)
@@ -96,7 +104,7 @@ func NewMultiPageViewModel(config *ConfigDTO, features *FeaturesDTO) MultiPageVi
 		currentPage:   currentPage,
 		frequentList:  frequentList,
 		goToList:      ConfigItemsToListItems(config.GoTo),
-		commandList:   ConfigItemsToListItems(config.Commands),
+		scriptList:    ConfigItemsToListItems(config.Scripts),
 		notesList:     ConfigNotesToListItems(config.Notes),
 		settingsList:  settingsList,
 		featuresList:  featuresList,
@@ -107,6 +115,7 @@ func NewMultiPageViewModel(config *ConfigDTO, features *FeaturesDTO) MultiPageVi
 		maxVisible:    8, // Show max 8 items at a time
 		quitting:      false,
 		styles:        DefaultStyles(),
+		terminalWidth: defaultContentWidth + screenGutterWidth,
 		searchMode:    false,
 		searchQuery:   "",
 		filteredList:  []ListItem{},
@@ -127,6 +136,10 @@ func (m MultiPageViewModel) Init() tea.Cmd {
 
 func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.terminalWidth = msg.Width
+		return m, nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
@@ -296,6 +309,9 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			items := m.getActiveList()
 			if len(items) > 0 && m.cursor < len(items) {
 				selectedItem := items[m.cursor]
+				if selectedItem.IsDiv {
+					return m, nil
+				}
 				if m.currentPage == SettingsPage && selectedItem.T == "features" {
 					m.currentPage = FeaturesPage
 					m.cursor = 0
@@ -311,6 +327,22 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			if !m.searchMode && m.currentPage == NotesPage && msg.String() == "a" {
 				*m.selected = fmt.Sprintf("%s|%s|", m.getPageName(), AddNoteAction)
+				m.quitting = true
+				return m, tea.Quit
+			}
+
+			if !m.searchMode && m.currentPage == ScriptsPage && msg.String() == "a" {
+				*m.selected = fmt.Sprintf("%s|%s|", m.getPageName(), AddScriptAction)
+				m.quitting = true
+				return m, tea.Quit
+			}
+
+			if !m.searchMode && m.currentPage == ScriptsPage && msg.String() == "e" {
+				items := m.getActiveList()
+				if len(items) == 0 || m.cursor >= len(items) || items[m.cursor].IsDiv {
+					return m, nil
+				}
+				*m.selected = fmt.Sprintf("%s|%s|%s", m.getPageName(), EditScriptAction, items[m.cursor].T)
 				m.quitting = true
 				return m, tea.Quit
 			}
@@ -452,13 +484,14 @@ func (m MultiPageViewModel) renderSearchBox() string {
 		searchText = "type to search"
 	}
 
+	width := m.contentWidth()
 	return lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), false, false, true, false).
 		BorderForeground(m.styles.SearchBoxColor).
 		Foreground(m.styles.SearchTextColor).
 		Padding(0, 1).
-		Width(72).
-		Render("/ " + searchText)
+		Width(width).
+		Render(truncateSingleLine("/ "+searchText, width-2))
 }
 
 func (m MultiPageViewModel) renderEmptyState() string {
@@ -467,6 +500,8 @@ func (m MultiPageViewModel) renderEmptyState() string {
 		message = "no matches"
 	} else if m.currentPage == NotesPage {
 		message = "no notes yet. press a to add one"
+	} else if m.currentPage == ScriptsPage {
+		message = "no scripts yet. press a to add one"
 	}
 
 	return lipgloss.NewStyle().
@@ -478,22 +513,29 @@ func (m MultiPageViewModel) renderEmptyState() string {
 }
 
 func (m MultiPageViewModel) renderDivider(item ListItem) string {
+	width := m.contentWidth()
 	return lipgloss.NewStyle().
 		Foreground(m.styles.DividerColor).
 		Faint(true).
-		Width(72).
-		Render("  ─ " + item.D)
+		Width(width).
+		Render(truncateSingleLine("  ─ "+item.D, width))
 }
 
 func (m MultiPageViewModel) renderListItem(item ListItem, index int) string {
 	selected := m.cursor == index
 	settingsLike := m.currentPage == SettingsPage || m.currentPage == FeaturesPage
+	width := m.contentWidth()
+	titleWidth := m.titleColumnWidth()
+	valueWidth := width - titleWidth - rowChromeWidth
+	if valueWidth < 16 {
+		valueWidth = 16
+	}
 
-	titleText := item.T
-	valueText := item.D
+	titleText := truncateSingleLine(item.T, titleWidth)
+	valueText := truncateSingleLine(item.D, valueWidth)
 	if m.searchMode && m.searchQuery != "" {
-		titleText = m.highlightMatches(item.T, m.searchQuery)
-		valueText = m.highlightMatches(item.D, m.searchQuery)
+		titleText = m.highlightMatches(titleText, m.searchQuery)
+		valueText = m.highlightMatches(valueText, m.searchQuery)
 	}
 
 	titleColor := m.styles.MutedTitleColor
@@ -524,7 +566,7 @@ func (m MultiPageViewModel) renderListItem(item ListItem, index int) string {
 
 	valueStyle := lipgloss.NewStyle().
 		Foreground(valueColor).
-		Width(56)
+		Width(valueWidth)
 
 	value := valueText
 	lowerValue := strings.ToLower(item.D)
@@ -545,7 +587,7 @@ func (m MultiPageViewModel) renderListItem(item ListItem, index int) string {
 	row := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		lipgloss.NewStyle().Foreground(borderColor).Render(prefix),
-		lipgloss.NewStyle().Width(24).Render(title),
+		lipgloss.NewStyle().Width(titleWidth).Render(title),
 		m.styles.Text("  ", m.styles.DividerColor),
 		value,
 	)
@@ -553,11 +595,11 @@ func (m MultiPageViewModel) renderListItem(item ListItem, index int) string {
 	if selected {
 		return lipgloss.NewStyle().
 			Background(lipgloss.Color("#313244")).
-			Width(72).
+			Width(width).
 			Render(row)
 	}
 
-	return lipgloss.NewStyle().Width(72).Render(row)
+	return lipgloss.NewStyle().Width(width).Render(row)
 }
 
 func (m MultiPageViewModel) renderFooter() string {
@@ -566,6 +608,8 @@ func (m MultiPageViewModel) renderFooter() string {
 		helpText = "type to search  /  up down navigate  /  enter select  /  esc cancel"
 	} else if m.currentPage == NotesPage {
 		helpText = "a add  /  / search  /  up down navigate  /  enter open  /  q esc quit"
+	} else if m.currentPage == ScriptsPage {
+		helpText = "a add  /  e edit  /  enter run  /  / search  /  left right switch  /  q esc quit"
 	} else if m.currentPage == FeaturesPage {
 		helpText = "/ search  /  up down navigate  /  enter toggle  /  esc back  /  q quit"
 	} else {
@@ -575,14 +619,70 @@ func (m MultiPageViewModel) renderFooter() string {
 	return m.styles.FooterStyle.Render(helpText + "\n")
 }
 
+func (m MultiPageViewModel) contentWidth() int {
+	width := m.terminalWidth - screenGutterWidth
+	if m.terminalWidth <= 0 {
+		width = defaultContentWidth
+	}
+	if width < minContentWidth {
+		return minContentWidth
+	}
+	return width
+}
+
+func (m MultiPageViewModel) titleColumnWidth() int {
+	width := m.contentWidth()
+	if width >= 112 {
+		return 30
+	}
+	if width >= 92 {
+		return 26
+	}
+	return 22
+}
+
+func truncateSingleLine(text string, maxWidth int) string {
+	text = strings.TrimSpace(strings.Join(strings.Fields(text), " "))
+	if maxWidth <= 0 {
+		return ""
+	}
+	if lipgloss.Width(text) <= maxWidth {
+		return text
+	}
+
+	if maxWidth <= 3 {
+		return truncateToWidth(text, maxWidth)
+	}
+
+	suffix := "..."
+	runes := []rune(text)
+	for len(runes) > 0 {
+		candidate := strings.TrimRight(string(runes), " ") + suffix
+		if lipgloss.Width(candidate) <= maxWidth {
+			return candidate
+		}
+		runes = runes[:len(runes)-1]
+	}
+
+	return suffix
+}
+
+func truncateToWidth(text string, maxWidth int) string {
+	runes := []rune(text)
+	for len(runes) > 0 && lipgloss.Width(string(runes)) > maxWidth {
+		runes = runes[:len(runes)-1]
+	}
+	return string(runes)
+}
+
 func (m MultiPageViewModel) getCurrentList() []ListItem {
 	switch m.currentPage {
 	case FrequentPage:
 		return m.frequentList
 	case GoToPage:
 		return m.goToList
-	case CommandsPage:
-		return m.commandList
+	case ScriptsPage:
+		return m.scriptList
 	case NotesPage:
 		return m.notesList
 	case SettingsPage:
@@ -600,8 +700,8 @@ func (m MultiPageViewModel) getPageName() string {
 		return "frequent"
 	case GoToPage:
 		return "goTo"
-	case CommandsPage:
-		return "commands"
+	case ScriptsPage:
+		return "scripts"
 	case NotesPage:
 		return "notes"
 	case SettingsPage:
@@ -619,8 +719,8 @@ func (m MultiPageViewModel) getPageNameByType(page PageType) string {
 		return "frequent"
 	case GoToPage:
 		return "goTo"
-	case CommandsPage:
-		return "commands"
+	case ScriptsPage:
+		return "scripts"
 	case NotesPage:
 		return "notes"
 	case SettingsPage:
@@ -755,6 +855,11 @@ func buildFeaturesList(features *FeaturesDTO) []ListItem {
 		{
 			T:     "frequent_goTo",
 			D:     enabledStatus(features.FrequentGoTo),
+			IsDiv: false,
+		},
+		{
+			T:     "scripts",
+			D:     enabledStatus(features.Scripts),
 			IsDiv: false,
 		},
 		{

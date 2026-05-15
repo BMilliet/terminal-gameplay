@@ -7,14 +7,42 @@ import (
 )
 
 type ConfigDTO struct {
-	GoTo     OrderedMap `json:"goTo"`
-	Commands OrderedMap `json:"commands"`
-	Notes    OrderedMap `json:"notes"`
+	GoTo    OrderedMap `json:"goTo"`
+	Scripts OrderedMap `json:"scripts"`
+	Notes   OrderedMap `json:"notes"`
+
+	migratedLegacyCommands bool
 }
 
 type ConfigItem struct {
 	Label string
 	Value string
+}
+
+func (c *ConfigDTO) UnmarshalJSON(data []byte) error {
+	type configJSON struct {
+		GoTo     OrderedMap `json:"goTo"`
+		Scripts  OrderedMap `json:"scripts"`
+		Commands OrderedMap `json:"commands"`
+		Notes    OrderedMap `json:"notes"`
+	}
+
+	var parsed configJSON
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return err
+	}
+
+	c.GoTo = parsed.GoTo
+	c.Scripts = parsed.Scripts
+	c.Notes = parsed.Notes
+	c.migratedLegacyCommands = false
+
+	if c.Scripts.Len() == 0 && parsed.Commands.Len() > 0 {
+		c.Scripts = parsed.Commands
+		c.migratedLegacyCommands = true
+	}
+
+	return nil
 }
 
 // OrderedMap preserves the order of keys as they appear in JSON

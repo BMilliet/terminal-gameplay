@@ -88,9 +88,9 @@ func GetDefaultConfig() *ConfigDTO {
 			Keys:   []string{"home"},
 			Values: map[string]string{"home": "~"},
 		},
-		Commands: OrderedMap{
+		Scripts: OrderedMap{
 			Keys:   []string{"example"},
-			Values: map[string]string{"example": "echo 'Add your commands in config.json'"},
+			Values: map[string]string{"example": "Example Lua script"},
 		},
 		Notes: OrderedMap{
 			Keys:   []string{"example"},

@@ -20,9 +20,13 @@ type FileManagerInterface interface {
 	GetGoToFrequencyContent() (string, error)
 	WriteGoToFrequencyContent(content string) error
 	EnsureNotesDir() error
+	EnsureScriptsDir() error
 	GetNotePath(title string) string
+	GetScriptPath(name string) string
 	EnsureNoteFile(title, content string) (string, error)
+	EnsureScriptFile(name, description string) (string, error)
 	SyncNotesContent(notes *OrderedMap) error
+	SyncScriptsFiles(scripts *OrderedMap) error
 	BasicSetup() error
 	GetCurrentDirectoryName() (string, error)
 }
@@ -31,6 +35,7 @@ type FileManager struct {
 	HomeDir           string
 	AppDir            string
 	NotesDir          string
+	ScriptsDir        string
 	ConfigPath        string
 	FeaturesPath      string
 	OptionsPath       string
@@ -45,6 +50,7 @@ func NewFileManager() (*FileManager, error) {
 
 	appDir := filepath.Join(homeDir, AppDirName)
 	notesDir := filepath.Join(appDir, NotesDirName)
+	scriptsDir := filepath.Join(appDir, ScriptsDirName)
 	configPath := filepath.Join(appDir, ConfigFileName)
 	featuresPath := filepath.Join(appDir, FeaturesFileName)
 	optionsPath := filepath.Join(appDir, OptionsFileName)
@@ -54,6 +60,7 @@ func NewFileManager() (*FileManager, error) {
 		HomeDir:           homeDir,
 		AppDir:            appDir,
 		NotesDir:          notesDir,
+		ScriptsDir:        scriptsDir,
 		ConfigPath:        configPath,
 		FeaturesPath:      featuresPath,
 		OptionsPath:       optionsPath,
@@ -187,8 +194,16 @@ func (m *FileManager) EnsureNotesDir() error {
 	return m.ensureDir(m.NotesDir)
 }
 
+func (m *FileManager) EnsureScriptsDir() error {
+	return m.ensureDir(m.ScriptsDir)
+}
+
 func (m *FileManager) GetNotePath(title string) string {
 	return filepath.Join(m.NotesDir, noteFileName(title))
+}
+
+func (m *FileManager) GetScriptPath(name string) string {
+	return filepath.Join(m.ScriptsDir, scriptFileName(name))
 }
 
 func (m *FileManager) EnsureNoteFile(title, content string) (string, error) {
@@ -209,6 +224,27 @@ func (m *FileManager) EnsureNoteFile(title, content string) (string, error) {
 	}
 
 	return notePath, nil
+}
+
+func (m *FileManager) EnsureScriptFile(name, description string) (string, error) {
+	if err := m.EnsureScriptsDir(); err != nil {
+		return "", err
+	}
+
+	scriptPath := m.GetScriptPath(name)
+	exists, err := m.CheckIfPathExists(scriptPath)
+	if err != nil {
+		return "", err
+	}
+
+	if !exists {
+		content := defaultLuaScriptContent(name, description)
+		if err := m.WriteFileContent(scriptPath, content); err != nil {
+			return "", fmt.Errorf("EnsureScriptFile -> %s %v", scriptPath, err)
+		}
+	}
+
+	return scriptPath, nil
 }
 
 func (m *FileManager) SyncNotesContent(notes *OrderedMap) error {
@@ -241,12 +277,39 @@ func (m *FileManager) SyncNotesContent(notes *OrderedMap) error {
 	return nil
 }
 
+func (m *FileManager) SyncScriptsFiles(scripts *OrderedMap) error {
+	if scripts == nil {
+		return nil
+	}
+
+	for _, key := range scripts.Keys {
+		if IsDividerKey(key) {
+			continue
+		}
+
+		description, ok := scripts.Values[key]
+		if !ok {
+			continue
+		}
+
+		if _, err := m.EnsureScriptFile(key, description); err != nil {
+			return fmt.Errorf("SyncScriptsFiles -> %s %v", key, err)
+		}
+	}
+
+	return nil
+}
+
 func (m *FileManager) BasicSetup() error {
 	if err := m.ensureAppDir(); err != nil {
 		return err
 	}
 
 	if err := m.EnsureNotesDir(); err != nil {
+		return err
+	}
+
+	if err := m.EnsureScriptsDir(); err != nil {
 		return err
 	}
 
@@ -274,7 +337,15 @@ func (m *FileManager) GetCurrentDirectoryName() (string, error) {
 }
 
 func noteFileName(title string) string {
-	fileName := strings.TrimSpace(title)
+	return fileNameWithExtension(title, NoteFileExtension)
+}
+
+func scriptFileName(name string) string {
+	return fileNameWithExtension(name, ScriptFileExtension)
+}
+
+func fileNameWithExtension(name, extension string) string {
+	fileName := strings.TrimSpace(name)
 	fileName = strings.ReplaceAll(fileName, "\\", "-")
 	fileName = filepath.Base(fileName)
 	fileName = strings.TrimSpace(fileName)
@@ -284,8 +355,22 @@ func noteFileName(title string) string {
 	}
 
 	if filepath.Ext(fileName) == "" {
-		fileName += NoteFileExtension
+		fileName += extension
 	}
 
 	return fileName
+}
+
+func defaultLuaScriptContent(name, description string) string {
+	lines := []string{
+		fmt.Sprintf("-- %s", strings.TrimSpace(name)),
+	}
+
+	description = strings.TrimSpace(description)
+	if description != "" {
+		lines = append(lines, fmt.Sprintf("-- %s", description))
+	}
+
+	lines = append(lines, "", fmt.Sprintf("print(%q)", "Hello from "+strings.TrimSpace(name)), "")
+	return strings.Join(lines, "\n")
 }

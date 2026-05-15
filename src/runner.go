@@ -59,6 +59,7 @@ func (r *Runner) Start() {
 	}
 
 	var config *ConfigDTO
+	migratedLegacyCommands := false
 	if configContent == "" {
 		// Create default config
 		config = GetDefaultConfig()
@@ -74,11 +75,26 @@ func (r *Runner) Start() {
 		if err != nil {
 			r.utils.HandleError(err, "Failed to parse config.json")
 		}
+		if config.migratedLegacyCommands {
+			migratedLegacyCommands = true
+		}
+	}
+
+	if features.Scripts {
+		if err := r.fileManager.SyncScriptsFiles(&config.Scripts); err != nil {
+			r.utils.HandleError(err, "Failed to initialize scripts")
+		}
 	}
 
 	if features.Notes {
 		if err := r.fileManager.SyncNotesContent(&config.Notes); err != nil {
 			r.utils.HandleError(err, "Failed to initialize notes")
+		}
+	}
+
+	if migratedLegacyCommands {
+		if err := r.writeConfig(config); err != nil {
+			r.utils.HandleError(err, "Failed to migrate commands to scripts")
 		}
 	}
 
@@ -121,6 +137,13 @@ func (r *Runner) Start() {
 			switch label {
 			case "frequent_goTo":
 				features.FrequentGoTo = !features.FrequentGoTo
+			case "scripts":
+				features.Scripts = !features.Scripts
+				if features.Scripts {
+					if err := r.fileManager.SyncScriptsFiles(&config.Scripts); err != nil {
+						r.utils.HandleError(err, "Failed to initialize scripts")
+					}
+				}
 			case "notes":
 				features.Notes = !features.Notes
 				if features.Notes {
@@ -165,8 +188,28 @@ func (r *Runner) Start() {
 			}
 			return
 
-		case "commands":
-			println(styles.Text("\n⚠️  Commands execution not implemented yet", styles.ErrorColor))
+		case "scripts":
+			switch label {
+			case AddScriptAction:
+				if err := r.createScript(config); err != nil {
+					r.utils.HandleError(err, "Failed to create script")
+				}
+				continue
+			case EditScriptAction:
+				if err := r.editScript(value); err != nil {
+					r.utils.HandleError(err, "Failed to edit script")
+				}
+				continue
+			}
+
+			confirmed := r.confirmScriptExecution(label)
+			if !confirmed {
+				continue
+			}
+
+			if err := r.runScript(label, value); err != nil {
+				r.utils.HandleError(err, "Failed to run script")
+			}
 			return
 
 		case "notes":
@@ -229,6 +272,73 @@ func (r *Runner) createNote(config *ConfigDTO) error {
 	}
 
 	return r.fileManager.SyncNotesContent(&config.Notes)
+}
+
+func (r *Runner) createScript(config *ConfigDTO) error {
+	scriptName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New script filename", "deploy.lua"))
+	if scriptName == ExitSignal || scriptName == "" {
+		return nil
+	}
+
+	description := strings.TrimSpace(r.viewBuilder.NewTextFieldView("Script description", "what this script does"))
+	if description == ExitSignal {
+		return nil
+	}
+	if description == "" {
+		description = "No description"
+	}
+
+	scriptPath, err := r.fileManager.EnsureScriptFile(scriptName, description)
+	if err != nil {
+		return err
+	}
+
+	if err := r.utils.OpenInNvim(scriptPath); err != nil {
+		return err
+	}
+
+	config.Scripts.Set(scriptName, description)
+	if err := r.writeConfig(config); err != nil {
+		return err
+	}
+
+	return r.fileManager.SyncScriptsFiles(&config.Scripts)
+}
+
+func (r *Runner) editScript(scriptName string) error {
+	scriptName = strings.TrimSpace(scriptName)
+	if scriptName == "" {
+		return nil
+	}
+
+	scriptPath, err := r.fileManager.EnsureScriptFile(scriptName, "")
+	if err != nil {
+		return err
+	}
+
+	return r.utils.OpenInNvim(scriptPath)
+}
+
+func (r *Runner) runScript(scriptName, description string) error {
+	scriptPath, err := r.fileManager.EnsureScriptFile(scriptName, description)
+	if err != nil {
+		return err
+	}
+
+	return r.utils.RunLuaScript(scriptPath)
+}
+
+func (r *Runner) confirmScriptExecution(scriptName string) bool {
+	return r.viewBuilder.NewConfirmView(fmt.Sprintf("Run script %q?", scriptName))
+}
+
+func (r *Runner) writeConfig(config *ConfigDTO) error {
+	jsonStr, err := ToJSON(config)
+	if err != nil {
+		return err
+	}
+
+	return r.fileManager.WriteConfigContent(jsonStr)
 }
 
 func (r *Runner) migrateLegacyFeatures(features *FeaturesDTO) {

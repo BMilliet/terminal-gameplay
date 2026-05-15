@@ -2,6 +2,7 @@ package src
 
 type ViewBuilderInterface interface {
 	NewListView(title string, op []ListItem, height int) ListItem
+	NewConfirmView(title string) bool
 	NewTextFieldView(title, placeHolder string) string
 	NewMultiPageView(config *ConfigDTO, features *FeaturesDTO) string
 }
@@ -16,6 +17,12 @@ func (b *ViewBuilder) NewListView(title string, op []ListItem, height int) ListI
 	endValue := ListItem{}
 	ListView(title, op, height, &endValue)
 	return endValue
+}
+
+func (b *ViewBuilder) NewConfirmView(title string) bool {
+	confirmed := false
+	ConfirmView(title, &confirmed)
+	return confirmed
 }
 
 func (b *ViewBuilder) NewTextFieldView(title, placeHolder string) string {
