@@ -25,6 +25,8 @@ type FileManagerInterface interface {
 	GetScriptPath(name string) string
 	EnsureNoteFile(title, content string) (string, error)
 	EnsureScriptFile(name, description string) (string, error)
+	DeleteNoteFile(title string) error
+	DeleteScriptFile(name string) error
 	SyncNotesContent(notes *OrderedMap) error
 	SyncScriptsFiles(scripts *OrderedMap) error
 	BasicSetup() error
@@ -245,6 +247,23 @@ func (m *FileManager) EnsureScriptFile(name, description string) (string, error)
 	}
 
 	return scriptPath, nil
+}
+
+func (m *FileManager) DeleteNoteFile(title string) error {
+	return m.deleteFileIfExists(m.GetNotePath(title))
+}
+
+func (m *FileManager) DeleteScriptFile(name string) error {
+	return m.deleteFileIfExists(m.GetScriptPath(name))
+}
+
+func (m *FileManager) deleteFileIfExists(path string) error {
+	err := os.Remove(path)
+	if err == nil || os.IsNotExist(err) {
+		return nil
+	}
+
+	return fmt.Errorf("deleteFileIfExists -> %s %v", path, err)
 }
 
 func (m *FileManager) SyncNotesContent(notes *OrderedMap) error {

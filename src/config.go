@@ -143,6 +143,19 @@ func (om *OrderedMap) Set(key, value string) {
 	om.Values[key] = value
 }
 
+func (om *OrderedMap) Delete(key string) {
+	if om.Values != nil {
+		delete(om.Values, key)
+	}
+
+	for i, existingKey := range om.Keys {
+		if existingKey == key {
+			om.Keys = append(om.Keys[:i], om.Keys[i+1:]...)
+			return
+		}
+	}
+}
+
 // Len returns the number of items
 func (om OrderedMap) Len() int {
 	return len(om.Keys)

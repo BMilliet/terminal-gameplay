@@ -200,6 +200,13 @@ func (r *Runner) Start() {
 					r.utils.HandleError(err, "Failed to edit script")
 				}
 				continue
+			case DeleteScriptAction:
+				if r.confirmDelete("script", value) {
+					if err := r.deleteScript(config, value); err != nil {
+						r.utils.HandleError(err, "Failed to delete script")
+					}
+				}
+				continue
 			}
 
 			confirmed := r.confirmScriptExecution(label)
@@ -216,6 +223,14 @@ func (r *Runner) Start() {
 			if label == AddNoteAction {
 				if err := r.createNote(config); err != nil {
 					r.utils.HandleError(err, "Failed to create note")
+				}
+				continue
+			}
+			if label == DeleteNoteAction {
+				if r.confirmDelete("note", value) {
+					if err := r.deleteNote(config, value); err != nil {
+						r.utils.HandleError(err, "Failed to delete note")
+					}
 				}
 				continue
 			}
@@ -319,6 +334,34 @@ func (r *Runner) editScript(scriptName string) error {
 	return r.utils.OpenInNvim(scriptPath)
 }
 
+func (r *Runner) deleteNote(config *ConfigDTO, noteName string) error {
+	noteName = strings.TrimSpace(noteName)
+	if noteName == "" {
+		return nil
+	}
+
+	if err := r.fileManager.DeleteNoteFile(noteName); err != nil {
+		return err
+	}
+
+	config.Notes.Delete(noteName)
+	return r.writeConfig(config)
+}
+
+func (r *Runner) deleteScript(config *ConfigDTO, scriptName string) error {
+	scriptName = strings.TrimSpace(scriptName)
+	if scriptName == "" {
+		return nil
+	}
+
+	if err := r.fileManager.DeleteScriptFile(scriptName); err != nil {
+		return err
+	}
+
+	config.Scripts.Delete(scriptName)
+	return r.writeConfig(config)
+}
+
 func (r *Runner) runScript(scriptName, description string) error {
 	scriptPath, err := r.fileManager.EnsureScriptFile(scriptName, description)
 	if err != nil {
@@ -330,6 +373,10 @@ func (r *Runner) runScript(scriptName, description string) error {
 
 func (r *Runner) confirmScriptExecution(scriptName string) bool {
 	return r.viewBuilder.NewConfirmView(fmt.Sprintf("Run script %q?", scriptName))
+}
+
+func (r *Runner) confirmDelete(kind, name string) bool {
+	return r.viewBuilder.NewConfirmView(fmt.Sprintf("Delete %s %q?", kind, name))
 }
 
 func (r *Runner) writeConfig(config *ConfigDTO) error {

@@ -62,6 +62,7 @@ type MultiPageViewModel struct {
 	styles        *Styles
 	terminalWidth int
 	headerFrame   int
+	pendingDelete bool
 	// Fuzzy find state
 	searchMode   bool
 	searchQuery  string
@@ -171,6 +172,10 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "esc":
+			if m.pendingDelete {
+				m.pendingDelete = false
+				return m, nil
+			}
 			// If in search mode, exit search mode
 			if m.searchMode {
 				m.searchMode = false
@@ -210,6 +215,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "/":
+			m.pendingDelete = false
 			// Enter search mode
 			if !m.searchMode {
 				m.searchMode = true
@@ -231,6 +237,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "left":
+			m.pendingDelete = false
 			// Don't allow page navigation in search mode
 			if m.searchMode {
 				return m, nil
@@ -252,6 +259,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "right":
+			m.pendingDelete = false
 			// Don't allow page navigation in search mode
 			if m.searchMode {
 				return m, nil
@@ -273,6 +281,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "up":
+			m.pendingDelete = false
 			items := m.getActiveList()
 			if len(items) == 0 {
 				return m, nil
@@ -303,6 +312,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "down":
+			m.pendingDelete = false
 			items := m.getActiveList()
 			if len(items) == 0 {
 				return m, nil
@@ -329,6 +339,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "enter":
+			m.pendingDelete = false
 			items := m.getActiveList()
 			if len(items) > 0 && m.cursor < len(items) {
 				selectedItem := items[m.cursor]
@@ -348,6 +359,25 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		default:
+			if !m.searchMode && msg.String() == "d" && m.canDeleteCurrentPage() {
+				item, ok := m.selectedActionItem()
+				if !ok {
+					m.pendingDelete = false
+					return m, nil
+				}
+
+				if !m.pendingDelete {
+					m.pendingDelete = true
+					return m, nil
+				}
+
+				*m.selected = fmt.Sprintf("%s|%s|%s", m.getPageName(), m.deleteActionForCurrentPage(), item.T)
+				m.quitting = true
+				return m, tea.Quit
+			}
+
+			m.pendingDelete = false
+
 			if !m.searchMode && m.currentPage == NotesPage && msg.String() == "a" {
 				*m.selected = fmt.Sprintf("%s|%s|", m.getPageName(), AddNoteAction)
 				m.quitting = true
@@ -652,12 +682,14 @@ func (m MultiPageViewModel) renderListItem(item ListItem, index int) string {
 
 func (m MultiPageViewModel) renderFooter() string {
 	var helpText string
-	if m.searchMode {
+	if m.pendingDelete {
+		helpText = "press d again to delete  /  esc cancel"
+	} else if m.searchMode {
 		helpText = "type to search  /  up down navigate  /  enter select  /  esc cancel"
 	} else if m.currentPage == NotesPage {
-		helpText = "a add  /  / search  /  up down navigate  /  enter open  /  q esc quit"
+		helpText = "a add  /  dd delete  /  / search  /  up down navigate  /  enter open  /  q esc quit"
 	} else if m.currentPage == ScriptsPage {
-		helpText = "a add  /  e edit  /  enter run  /  / search  /  left right switch  /  q esc quit"
+		helpText = "a add  /  e edit  /  dd delete  /  enter run  /  / search  /  left right switch  /  q esc quit"
 	} else if m.currentPage == FeaturesPage {
 		helpText = "/ search  /  up down navigate  /  enter toggle  /  esc back  /  q quit"
 	} else {
@@ -785,6 +817,31 @@ func (m MultiPageViewModel) getCurrentList() []ListItem {
 	default:
 		return []ListItem{}
 	}
+}
+
+func (m MultiPageViewModel) canDeleteCurrentPage() bool {
+	return m.currentPage == NotesPage || m.currentPage == ScriptsPage
+}
+
+func (m MultiPageViewModel) selectedActionItem() (ListItem, bool) {
+	items := m.getActiveList()
+	if len(items) == 0 || m.cursor >= len(items) {
+		return ListItem{}, false
+	}
+
+	item := items[m.cursor]
+	if item.IsDiv {
+		return ListItem{}, false
+	}
+
+	return item, true
+}
+
+func (m MultiPageViewModel) deleteActionForCurrentPage() string {
+	if m.currentPage == NotesPage {
+		return DeleteNoteAction
+	}
+	return DeleteScriptAction
 }
 
 func (m MultiPageViewModel) getPageName() string {
