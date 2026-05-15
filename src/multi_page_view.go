@@ -339,202 +339,240 @@ func (m MultiPageViewModel) View() string {
 	}
 
 	var b strings.Builder
+	b.WriteString(m.renderHeader())
 
-	// Header with tabs (only show non-empty pages)
-	var tabViews []string
-	for _, page := range m.availPages {
-		pageName := m.getPageNameByType(page)
-		if page == m.currentPage || (m.currentPage == FeaturesPage && page == SettingsPage) {
-			tabViews = append(tabViews, m.styles.Text(fmt.Sprintf("[ %s ]", pageName), m.styles.SelectedTitleColor))
-		} else {
-			tabViews = append(tabViews, m.styles.Text(fmt.Sprintf("  %s  ", pageName), m.styles.MutedTitleColor))
-		}
-	}
-	b.WriteString("\n")
-	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, tabViews...))
-	b.WriteString("\n\n")
-
-	// Show search box if in search mode
 	if m.searchMode {
-		searchBox := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(m.styles.SearchBoxColor).
-			Padding(0, 1).
-			Width(70).
-			Foreground(m.styles.SearchTextColor)
-
-		searchText := fmt.Sprintf("🔍 Search: %s", m.searchQuery)
-		if m.searchQuery == "" {
-			searchText = "🔍 Search: (type to search...)"
-		}
-		b.WriteString(searchBox.Render(searchText))
+		b.WriteString(m.renderSearchBox())
 		b.WriteString("\n\n")
 	}
 
-	// Current page items with borders
 	items := m.getActiveList()
 	if len(items) == 0 {
-		if m.searchMode {
-			b.WriteString(m.styles.FooterStyle.Render("  No matches found\n"))
-		} else {
-			b.WriteString(m.styles.FooterStyle.Render("  No items configured\n"))
-		}
+		b.WriteString(m.renderEmptyState())
 	} else {
-		// Calculate visible range
 		visibleEnd := m.viewportStart + m.maxVisible
 		if visibleEnd > len(items) {
 			visibleEnd = len(items)
 		}
 
-		// Show scroll indicator if there are more items above
 		if m.viewportStart > 0 {
-			b.WriteString(m.styles.FooterStyle.Render("  ⬆ More items above..."))
-			b.WriteString("\n\n")
+			b.WriteString(m.styles.FooterStyle.Render("  more above"))
+			b.WriteString("\n")
 		}
 
-		// Render only visible items
 		for i := m.viewportStart; i < visibleEnd; i++ {
 			item := items[i]
-
-			// Check if this is a divider
 			if item.IsDiv {
-				// Render divider with subtle styling
-				dividerText := fmt.Sprintf("─── %s ───", item.D)
-				dividerStyle := lipgloss.NewStyle().
-					Foreground(m.styles.DividerColor).
-					Italic(true).
-					Width(70).
-					Align(lipgloss.Center)
-				b.WriteString(dividerStyle.Render(dividerText))
+				b.WriteString(m.renderDivider(item))
 				b.WriteString("\n")
 				continue
 			}
 
-			// Style for item box
-			var itemBox lipgloss.Style
-			var isSettingsPage = m.currentPage == SettingsPage || m.currentPage == FeaturesPage
-
-			if m.cursor == i {
-				// Selected item - with bright border and indented
-				borderColor := m.styles.SelectedTitleColor
-				if isSettingsPage {
-					borderColor = m.styles.SettingsSelectedTitleColor
-				}
-				itemBox = lipgloss.NewStyle().
-					Border(lipgloss.RoundedBorder()).
-					BorderForeground(borderColor).
-					Padding(0, 1).
-					Width(70).
-					MarginLeft(2) // Indent selected item
-			} else {
-				// Unselected item - subtle border
-				borderColor := m.styles.MutedBorderColor
-				if isSettingsPage {
-					borderColor = m.styles.SettingsBorderColor
-				}
-				itemBox = lipgloss.NewStyle().
-					Border(lipgloss.RoundedBorder()).
-					BorderForeground(borderColor).
-					Padding(0, 1).
-					Width(70)
-			}
-
-			// Title (label) - bold and prominent
-			titleStyle := lipgloss.NewStyle().Bold(true)
-			var valueColor lipgloss.Color
-			if m.cursor == i {
-				if isSettingsPage {
-					titleStyle = titleStyle.Foreground(m.styles.SettingsSelectedTitleColor)
-					valueColor = m.styles.SettingsValueColor
-				} else {
-					titleStyle = titleStyle.Foreground(m.styles.SelectedTitleColor)
-					valueColor = m.styles.FooterColor
-				}
-			} else {
-				if isSettingsPage {
-					titleStyle = titleStyle.Foreground(m.styles.SettingsTitleColor)
-					valueColor = m.styles.SettingsValueColor
-				} else {
-					titleStyle = titleStyle.Foreground(m.styles.MutedTitleColor)
-					valueColor = m.styles.MutedTitleColor
-				}
-			}
-
-			// Value - smaller and wrapped
-			valueStyle := lipgloss.NewStyle().
-				Foreground(valueColor).
-				Width(66). // Slightly less than box width for padding
-				Italic(true)
-
-			// Build content with highlighting if in search mode
-			var titleText, valueText string
-			if m.searchMode && m.searchQuery != "" {
-				titleText = m.highlightMatches(item.T, m.searchQuery)
-				valueText = m.highlightMatches(item.D, m.searchQuery)
-			} else {
-				titleText = item.T
-				valueText = item.D
-			}
-
-			// Apply special colors for settings toggles (enabled/disabled)
-			var renderedValue string
-			if isSettingsPage {
-				if strings.Contains(strings.ToLower(item.D), "enabled") {
-					// Use green color for enabled
-					enabledStyle := lipgloss.NewStyle().
-						Foreground(m.styles.SettingsEnabledColor).
-						Width(66).
-						Italic(true)
-					renderedValue = enabledStyle.Render(valueText)
-				} else if strings.Contains(strings.ToLower(item.D), "disabled") {
-					// Use red color for disabled
-					disabledStyle := lipgloss.NewStyle().
-						Foreground(m.styles.SettingsDisabledColor).
-						Width(66).
-						Italic(true)
-					renderedValue = disabledStyle.Render(valueText)
-				} else {
-					// Default value style for non-toggle settings
-					renderedValue = valueStyle.Render(valueText)
-				}
-			} else {
-				renderedValue = valueStyle.Render(valueText)
-			}
-
-			content := fmt.Sprintf("%s\n%s",
-				titleStyle.Render(titleText),
-				renderedValue,
-			)
-
-			b.WriteString(itemBox.Render(content))
+			b.WriteString(m.renderListItem(item, i))
 			b.WriteString("\n")
 		}
 
-		// Show scroll indicator if there are more items below
 		if visibleEnd < len(items) {
+			b.WriteString(m.styles.FooterStyle.Render("  more below"))
 			b.WriteString("\n")
-			b.WriteString(m.styles.FooterStyle.Render("  ⬇ More items below..."))
 		}
 	}
 
-	// Footer
 	b.WriteString("\n")
-	var helpText string
-	if m.searchMode {
-		helpText = "  type to search • ↑↓ navigate • enter select • esc cancel"
-	} else if m.currentPage == NotesPage {
-		helpText = "  a add • / search • ↑↓ navigate • enter select • q/esc quit"
-	} else if m.currentPage == FeaturesPage {
-		helpText = "  / search • ↑↓ navigate • enter toggle • esc back • q quit"
-	} else {
-		helpText = "  / search • ↑↓ navigate • enter select • q/esc quit"
-		if len(m.availPages) > 1 {
-			helpText = "  / search • ← → switch • ↑↓ navigate • enter select • q/esc quit"
-		}
-	}
-	b.WriteString(m.styles.FooterStyle.Render(helpText + "\n"))
+	b.WriteString(m.renderFooter())
 
 	return b.String()
+}
+
+func (m MultiPageViewModel) renderHeader() string {
+	var b strings.Builder
+
+	wordmark := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#11151C")).
+		Background(m.styles.SelectedTitleColor).
+		Bold(true).
+		Padding(0, 1).
+		Render("tg")
+
+	context := lipgloss.NewStyle().
+		Foreground(m.styles.TitleColor).
+		Bold(true).
+		Render("terminal-gameplay")
+
+	page := lipgloss.NewStyle().
+		Foreground(m.styles.FooterColor).
+		Render(m.getPageName())
+
+	meta := lipgloss.JoinHorizontal(
+		lipgloss.Center,
+		wordmark,
+		" ",
+		context,
+		m.styles.Text(" / ", m.styles.DividerColor),
+		page,
+	)
+
+	b.WriteString("\n")
+	b.WriteString(meta)
+	b.WriteString("\n")
+	b.WriteString(m.renderTabs())
+	b.WriteString("\n\n")
+
+	return b.String()
+}
+
+func (m MultiPageViewModel) renderTabs() string {
+	tabs := []string{}
+	for _, page := range m.availPages {
+		pageName := m.getPageNameByType(page)
+		active := page == m.currentPage || (m.currentPage == FeaturesPage && page == SettingsPage)
+
+		tabStyle := lipgloss.NewStyle().
+			Foreground(m.styles.MutedTitleColor).
+			Padding(0, 1)
+		prefix := " "
+
+		if active {
+			tabStyle = tabStyle.
+				Foreground(m.styles.SelectedTitleColor).
+				Background(lipgloss.Color("#313244")).
+				Bold(true)
+			prefix = "▌"
+		}
+
+		tabs = append(tabs, tabStyle.Render(prefix+" "+pageName))
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+}
+
+func (m MultiPageViewModel) renderSearchBox() string {
+	searchText := m.searchQuery
+	if searchText == "" {
+		searchText = "type to search"
+	}
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		BorderForeground(m.styles.SearchBoxColor).
+		Foreground(m.styles.SearchTextColor).
+		Padding(0, 1).
+		Width(72).
+		Render("/ " + searchText)
+}
+
+func (m MultiPageViewModel) renderEmptyState() string {
+	message := "no items"
+	if m.searchMode {
+		message = "no matches"
+	} else if m.currentPage == NotesPage {
+		message = "no notes yet. press a to add one"
+	}
+
+	return lipgloss.NewStyle().
+		Foreground(m.styles.FooterColor).
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(m.styles.MutedBorderColor).
+		Padding(0, 0, 0, 1).
+		Render(message + "\n")
+}
+
+func (m MultiPageViewModel) renderDivider(item ListItem) string {
+	return lipgloss.NewStyle().
+		Foreground(m.styles.DividerColor).
+		Faint(true).
+		Width(72).
+		Render("  ─ " + item.D)
+}
+
+func (m MultiPageViewModel) renderListItem(item ListItem, index int) string {
+	selected := m.cursor == index
+	settingsLike := m.currentPage == SettingsPage || m.currentPage == FeaturesPage
+
+	titleText := item.T
+	valueText := item.D
+	if m.searchMode && m.searchQuery != "" {
+		titleText = m.highlightMatches(item.T, m.searchQuery)
+		valueText = m.highlightMatches(item.D, m.searchQuery)
+	}
+
+	titleColor := m.styles.MutedTitleColor
+	valueColor := m.styles.FooterColor
+	borderColor := m.styles.MutedBorderColor
+	prefix := "  "
+
+	if settingsLike {
+		titleColor = m.styles.SettingsTitleColor
+		valueColor = m.styles.SettingsValueColor
+	}
+
+	if selected {
+		titleColor = m.styles.SelectedTitleColor
+		valueColor = m.styles.NyanzaColor
+		borderColor = m.styles.SelectedTitleColor
+		prefix = "▌ "
+		if settingsLike {
+			titleColor = m.styles.SettingsSelectedTitleColor
+			borderColor = m.styles.SettingsSelectedTitleColor
+		}
+	}
+
+	title := lipgloss.NewStyle().
+		Foreground(titleColor).
+		Bold(selected).
+		Render(titleText)
+
+	valueStyle := lipgloss.NewStyle().
+		Foreground(valueColor).
+		Width(56)
+
+	value := valueText
+	lowerValue := strings.ToLower(item.D)
+	if settingsLike && strings.Contains(lowerValue, "enabled") {
+		value = lipgloss.NewStyle().
+			Foreground(m.styles.SettingsEnabledColor).
+			Bold(selected).
+			Render(valueText)
+	} else if settingsLike && strings.Contains(lowerValue, "disabled") {
+		value = lipgloss.NewStyle().
+			Foreground(m.styles.SettingsDisabledColor).
+			Bold(selected).
+			Render(valueText)
+	} else {
+		value = valueStyle.Render(valueText)
+	}
+
+	row := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		lipgloss.NewStyle().Foreground(borderColor).Render(prefix),
+		lipgloss.NewStyle().Width(24).Render(title),
+		m.styles.Text("  ", m.styles.DividerColor),
+		value,
+	)
+
+	if selected {
+		return lipgloss.NewStyle().
+			Background(lipgloss.Color("#313244")).
+			Width(72).
+			Render(row)
+	}
+
+	return lipgloss.NewStyle().Width(72).Render(row)
+}
+
+func (m MultiPageViewModel) renderFooter() string {
+	var helpText string
+	if m.searchMode {
+		helpText = "type to search  /  up down navigate  /  enter select  /  esc cancel"
+	} else if m.currentPage == NotesPage {
+		helpText = "a add  /  / search  /  up down navigate  /  enter open  /  q esc quit"
+	} else if m.currentPage == FeaturesPage {
+		helpText = "/ search  /  up down navigate  /  enter toggle  /  esc back  /  q quit"
+	} else {
+		helpText = "/ search  /  left right switch  /  up down navigate  /  enter select  /  q esc quit"
+	}
+
+	return m.styles.FooterStyle.Render(helpText + "\n")
 }
 
 func (m MultiPageViewModel) getCurrentList() []ListItem {
@@ -578,15 +616,15 @@ func (m MultiPageViewModel) getPageName() string {
 func (m MultiPageViewModel) getPageNameByType(page PageType) string {
 	switch page {
 	case FrequentPage:
-		return "frequent ⭐"
+		return "frequent"
 	case GoToPage:
-		return "goTo ⚡️"
+		return "goTo"
 	case CommandsPage:
-		return "commands 🎮"
+		return "commands"
 	case NotesPage:
-		return "notes ✏️"
+		return "notes"
 	case SettingsPage:
-		return "settings ⚙️"
+		return "settings"
 	case FeaturesPage:
 		return "features"
 	default:

@@ -51,64 +51,62 @@ type Styles struct {
 func DefaultStyles() *Styles {
 	s := new(Styles)
 
-	s.PeachColor = lipgloss.Color("#F2B391")
-	s.CoralColor = lipgloss.Color("#F39194")
-	s.OrchidColor = lipgloss.Color("#E3B5BF")
-	s.ThistleColor = lipgloss.Color("#DAC3E9")
-	s.NyanzaColor = lipgloss.Color("#E9F2D0")
-	s.ErrorColor = lipgloss.Color("#FF99B8")
-	s.AquamarineColor = lipgloss.Color("#B4F8D5")
-	s.DividerColor = lipgloss.Color("#6B6B6B")
+	s.PeachColor = lipgloss.Color("#FAB387")
+	s.CoralColor = lipgloss.Color("#F38BA8")
+	s.OrchidColor = lipgloss.Color("#CBA6F7")
+	s.ThistleColor = lipgloss.Color("#F5C2E7")
+	s.NyanzaColor = lipgloss.Color("#CDD6F4")
+	s.ErrorColor = lipgloss.Color("#F38BA8")
+	s.AquamarineColor = lipgloss.Color("#A6E3A1")
+	s.DividerColor = lipgloss.Color("#7F849C")
 
 	// Muted colors for unselected items
-	s.MutedTitleColor = lipgloss.Color("#6B6B6B")  // Subtle gray
-	s.MutedBorderColor = lipgloss.Color("#3A3A3A") // Very dark gray
+	s.MutedTitleColor = lipgloss.Color("#9399B2")
+	s.MutedBorderColor = lipgloss.Color("#45475A")
 
 	// Search and highlight colors
-	s.SearchBoxColor = s.AquamarineColor
-	s.SearchTextColor = s.ThistleColor
-	s.HighlightBgColor = lipgloss.Color("#FFD700") // Gold/yellow
-	s.HighlightFgColor = lipgloss.Color("#1A1A1A") // Dark text for readability
+	s.SearchBoxColor = lipgloss.Color("#F5C2E7")
+	s.SearchTextColor = s.NyanzaColor
+	s.HighlightBgColor = lipgloss.Color("#F5C2E7")
+	s.HighlightFgColor = lipgloss.Color("#1E1E2E")
 
-	// Settings colors - slightly desaturated/grayed versions of main palette
-	s.SettingsTitleColor = lipgloss.Color("#9B8B9F")         // Muted purple-gray (less saturated Orchid/Thistle)
-	s.SettingsSelectedTitleColor = lipgloss.Color("#C5B0C9") // Soft purple-gray (grayed Orchid)
-	s.SettingsBorderColor = lipgloss.Color("#7A6B7E")        // Medium purple-gray
-	s.SettingsValueColor = lipgloss.Color("#ADA0B0")         // Light purple-gray
-	s.SettingsEnabledColor = lipgloss.Color("#A8DDA8")       // Soft pastel green (harmonizes with Nyanza/Aquamarine)
-	s.SettingsDisabledColor = lipgloss.Color("#E8999D")      // Soft pastel red (harmonizes with Coral/ErrorColor)
+	// Settings colors
+	s.SettingsTitleColor = lipgloss.Color("#F5C2E7")
+	s.SettingsSelectedTitleColor = lipgloss.Color("#CBA6F7")
+	s.SettingsBorderColor = lipgloss.Color("#585B70")
+	s.SettingsValueColor = lipgloss.Color("#BAC2DE")
+	s.SettingsEnabledColor = lipgloss.Color("#A6E3A1")
+	s.SettingsDisabledColor = lipgloss.Color("#F38BA8")
 
-	s.BorderColor = s.OrchidColor
-	s.FooterColor = s.NyanzaColor
-	s.TitleColor = s.ThistleColor
-	s.SelectedTitleColor = s.OrchidColor
+	s.BorderColor = lipgloss.Color("#585B70")
+	s.FooterColor = lipgloss.Color("#A6ADC8")
+	s.TitleColor = s.NyanzaColor
+	s.SelectedTitleColor = lipgloss.Color("#CBA6F7")
 
 	s.InputField = lipgloss.NewStyle().
-		BorderForeground(s.BorderColor).
-		BorderStyle(lipgloss.NormalBorder()).
-		Padding(1).
-		Width(80)
+		BorderForeground(s.SearchBoxColor).
+		BorderStyle(lipgloss.RoundedBorder()).
+		Padding(0, 1).
+		Width(72)
 
 	s.InputFieldWithError = lipgloss.NewStyle().
 		BorderForeground(s.ErrorColor).
-		BorderStyle(lipgloss.NormalBorder()).
-		Padding(1).
-		Width(80)
+		BorderStyle(lipgloss.RoundedBorder()).
+		Padding(0, 1).
+		Width(72)
 
 	s.FooterStyle = lipgloss.NewStyle().
-		PaddingLeft(1).
 		Foreground(s.FooterColor).
-		Italic(true)
+		Faint(true)
 
 	s.TitleStyle = lipgloss.NewStyle().
-		PaddingLeft(1).
 		Foreground(s.TitleColor).
 		Bold(true)
 
 	s.PaginationStyle = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
 	s.HelpStyle = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
 	s.SelectedItemStyle = lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, false, true).
+		Border(lipgloss.ThickBorder(), false, false, false, true).
 		BorderForeground(s.SelectedTitleColor).
 		Foreground(s.SelectedTitleColor).
 		Padding(0, 0, 0, 1)
