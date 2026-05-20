@@ -445,7 +445,6 @@ func (m MultiPageViewModel) View() string {
 		}
 
 		if m.viewportStart > 0 {
-			b.WriteString(m.styles.FooterStyle.Render("  more above"))
 			b.WriteString("\n")
 		}
 
@@ -462,7 +461,6 @@ func (m MultiPageViewModel) View() string {
 		}
 
 		if visibleEnd < len(items) {
-			b.WriteString(m.styles.FooterStyle.Render("  more below"))
 			b.WriteString("\n")
 		}
 	}
