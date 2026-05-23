@@ -2,19 +2,22 @@ package main
 
 import (
 	"log"
-	"terminal-gameplay/src"
+
+	"terminal-gameplay/internal/app"
+	"terminal-gameplay/internal/ui"
+	"terminal-gameplay/internal/utils"
 )
 
 func main() {
-	fileManager, err := src.NewFileManager()
+	fileManager, err := utils.NewFileManager()
 	if err != nil {
 		log.Fatalln(err, "Failed to initialize FileManager")
 	}
 
-	utils := src.NewUtils()
-	viewBuilder := src.NewViewBuilder()
+	runtime := utils.NewUtils()
+	viewBuilder := ui.NewViewBuilder()
 
-	runner := src.NewRunner(fileManager, utils, viewBuilder)
+	runner := app.NewRunner(fileManager, runtime, viewBuilder)
 
 	runner.Start()
 }

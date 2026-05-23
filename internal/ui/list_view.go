@@ -1,28 +1,20 @@
-package src
+package ui
 
 import (
 	"fmt"
 	"os"
+
+	"terminal-gameplay/internal/utils"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-type ListItem struct {
-	T     string
-	D     string
-	IsDiv bool
-}
-
-func (i ListItem) Title() string       { return i.T }
-func (i ListItem) Description() string { return i.D }
-func (i ListItem) FilterValue() string { return i.T }
-
 type ListViewModel struct {
 	list     list.Model
 	selected string
-	endValue *ListItem
+	endValue *utils.ListItem
 	quitting bool
 	styles   Styles
 }
@@ -42,19 +34,19 @@ func (m ListViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "enter":
 			m.quitting = true
-			i, ok := m.list.SelectedItem().(ListItem)
+			i, ok := m.list.SelectedItem().(utils.ListItem)
 			if ok {
 				*m.endValue = i
 			}
 			return m, tea.Quit
 
 		case "ctrl+c", "esc", "q":
-			*m.endValue = ListItem{T: ExitSignal}
+			*m.endValue = utils.ListItem{T: utils.ExitSignal}
 			return m, tea.Quit
 		}
 	}
 
-	i, ok := m.list.SelectedItem().(ListItem)
+	i, ok := m.list.SelectedItem().(utils.ListItem)
 	if ok {
 		m.selected = string(i.D)
 	}
@@ -72,7 +64,7 @@ func (m ListViewModel) View() string {
 	return m.list.View()
 }
 
-func ListView(title string, op []ListItem, height int, endValue *ListItem) {
+func ListView(title string, op []utils.ListItem, height int, endValue *utils.ListItem) {
 	items := []list.Item{}
 	for _, o := range op {
 		items = append(items, o)

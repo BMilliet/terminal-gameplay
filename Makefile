@@ -1,9 +1,10 @@
-.PHONY: help build run fmt deps
+.PHONY: help deps build run fmt fmt-check vet lint test tests
 
 # Variables
 BINARY_NAME=terminal-gameplay
-GO_FILES=$(shell find . -name '*.go' -not -path "./vendor/*")
-GO_PACKAGES=$(shell go list ./... | grep -v /vendor/)
+INSTALL_DIR=$(HOME)/.terminal-gameplay
+GO_FILES=$(shell find . -type f -name '*.go' -not -path './vendor/*')
+GO_PACKAGES=./...
 
 # Default target
 help: ## Show this help message
@@ -17,8 +18,8 @@ deps: ## Download and install dependencies
 build: ## Build the application
 	@echo "🏗️  Building $(BINARY_NAME)..."
 	go build -o $(BINARY_NAME) .
-	mkdir ~/.terminal-gameplay | true
-	mv ${BINARY_NAME} ~/.terminal-gameplay/${BINARY_NAME}
+	mkdir -p $(INSTALL_DIR)
+	mv $(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
 
 run: ## Run the application without building binary
 	@echo "🚀 Running in dev mode..."
@@ -27,8 +28,25 @@ run: ## Run the application without building binary
 fmt: ## Format Go code
 	@echo "✨ Formatting code..."
 	gofmt -s -w $(GO_FILES)
-	go fmt $(GO_PACKAGES)
 
-lint: fmt vet ## Run linters (fmt + vet)
+fmt-check: ## Check Go formatting without modifying files
+	@echo "🔎 Checking Go formatting..."
+	@unformatted="$$(gofmt -s -l $(GO_FILES))"; \
+	if [ -n "$$unformatted" ]; then \
+		echo "Files need formatting:"; \
+		echo "$$unformatted"; \
+		echo "Run 'make fmt' to fix them."; \
+		exit 1; \
+	fi
+
+vet: ## Run go vet
+	@echo "🔎 Running go vet..."
+	go vet $(GO_PACKAGES)
+
+lint: fmt-check vet ## Run linters without modifying files
 	@echo "✅ Linting complete"
 
+test: lint ## Run tests
+	go test ./...
+
+tests: test ## Alias for test

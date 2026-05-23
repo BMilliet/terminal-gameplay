@@ -1,8 +1,10 @@
-package src
+package ui
 
 import (
 	"fmt"
 	"os"
+
+	"terminal-gameplay/internal/utils"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -63,7 +65,7 @@ func (m textInputViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case tea.KeyCtrlC, tea.KeyEsc:
-			*m.endValue = ExitSignal
+			*m.endValue = utils.ExitSignal
 			return m, tea.Quit
 		}
 

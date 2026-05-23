@@ -1,4 +1,4 @@
-package src
+package utils
 
 import (
 	"bytes"
@@ -43,6 +43,10 @@ func (c *ConfigDTO) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
+}
+
+func (c ConfigDTO) MigratedLegacyCommands() bool {
+	return c.migratedLegacyCommands
 }
 
 // OrderedMap preserves the order of keys as they appear in JSON
@@ -156,14 +160,14 @@ func (om *OrderedMap) Delete(key string) {
 	}
 }
 
-func (om *OrderedMap) InsertInSection(sectionKey, key, value string) {
+func (om *OrderedMap) InsertInSection(rootSectionKey, sectionKey, key, value string) {
 	if om.Values == nil {
 		om.Values = make(map[string]string)
 	}
 
 	om.Delete(key)
 
-	insertIndex := om.sectionInsertIndex(sectionKey)
+	insertIndex := om.SectionInsertIndex(rootSectionKey, sectionKey)
 	if insertIndex > len(om.Keys) {
 		insertIndex = len(om.Keys)
 	}
@@ -193,8 +197,8 @@ func (om OrderedMap) NextDividerKey() string {
 	}
 }
 
-func (om OrderedMap) sectionInsertIndex(sectionKey string) int {
-	if sectionKey == RootGoToSection {
+func (om OrderedMap) SectionInsertIndex(rootSectionKey, sectionKey string) int {
+	if sectionKey == rootSectionKey {
 		for i, key := range om.Keys {
 			if IsDividerKey(key) {
 				return i

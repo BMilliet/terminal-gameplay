@@ -1,4 +1,4 @@
-package src
+package ui
 
 import (
 	"github.com/charmbracelet/bubbles/list"

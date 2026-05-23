@@ -1,54 +1,62 @@
-package src
+package app
 
 import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"terminal-gameplay/internal/frequent"
+	gototab "terminal-gameplay/internal/goto"
+	"terminal-gameplay/internal/notes"
+	"terminal-gameplay/internal/scripts"
+	"terminal-gameplay/internal/settings"
+	"terminal-gameplay/internal/ui"
+	"terminal-gameplay/internal/utils"
 )
 
 type Runner struct {
-	fileManager FileManagerInterface
-	utils       UtilsInterface
-	viewBuilder ViewBuilderInterface
+	fileManager utils.FileManagerInterface
+	runtime     utils.UtilsInterface
+	viewBuilder ui.ViewBuilderInterface
 }
 
-func NewRunner(fm FileManagerInterface, u UtilsInterface, b ViewBuilderInterface) *Runner {
+func NewRunner(fm utils.FileManagerInterface, runtime utils.UtilsInterface, b ui.ViewBuilderInterface) *Runner {
 	return &Runner{
 		fileManager: fm,
-		utils:       u,
+		runtime:     runtime,
 		viewBuilder: b,
 	}
 }
 
 func (r *Runner) Start() {
-	styles := DefaultStyles()
+	styles := ui.DefaultStyles()
 
 	// Initialize application directory and config file
 	if err := r.fileManager.BasicSetup(); err != nil {
-		r.utils.HandleError(err, "Failed to initialize application")
+		r.runtime.HandleError(err, "Failed to initialize application")
 	}
 
 	// Load or create default features
 	featuresContent, err := r.fileManager.GetFeaturesContent()
 	if err != nil {
-		r.utils.HandleError(err, "Failed to read features")
+		r.runtime.HandleError(err, "Failed to read features")
 	}
 
-	var features *FeaturesDTO
+	var features *settings.FeaturesDTO
 	if featuresContent == "" {
-		features = GetDefaultFeatures()
+		features = settings.GetDefaultFeatures()
 		r.migrateLegacyFeatures(features)
-		jsonStr, err := ToJSON(features)
+		jsonStr, err := utils.ToJSON(features)
 		if err != nil {
-			r.utils.HandleError(err, "Failed to create default features")
+			r.runtime.HandleError(err, "Failed to create default features")
 		}
 		if err := r.fileManager.WriteFeaturesContent(jsonStr); err != nil {
-			r.utils.HandleError(err, "Failed to write default features")
+			r.runtime.HandleError(err, "Failed to write default features")
 		}
 	} else {
-		features, err = ParseJSONContent[FeaturesDTO](featuresContent)
+		features, err = utils.ParseJSONContent[settings.FeaturesDTO](featuresContent)
 		if err != nil {
-			r.utils.HandleError(err, "Failed to parse features.json")
+			r.runtime.HandleError(err, "Failed to parse features.json")
 		}
 		features.Normalize()
 	}
@@ -56,53 +64,53 @@ func (r *Runner) Start() {
 	// Load or create default config
 	configContent, err := r.fileManager.GetConfigContent()
 	if err != nil {
-		r.utils.HandleError(err, "Failed to read config")
+		r.runtime.HandleError(err, "Failed to read config")
 	}
 
-	var config *ConfigDTO
+	var config *utils.ConfigDTO
 	migratedLegacyCommands := false
 	if configContent == "" {
 		// Create default config
-		config = GetDefaultConfig()
-		jsonStr, err := ToJSON(config)
+		config = utils.GetDefaultConfig()
+		jsonStr, err := utils.ToJSON(config)
 		if err != nil {
-			r.utils.HandleError(err, "Failed to create default config")
+			r.runtime.HandleError(err, "Failed to create default config")
 		}
 		if err := r.fileManager.WriteConfigContent(jsonStr); err != nil {
-			r.utils.HandleError(err, "Failed to write default config")
+			r.runtime.HandleError(err, "Failed to write default config")
 		}
 	} else {
-		config, err = ParseJSONContent[ConfigDTO](configContent)
+		config, err = utils.ParseJSONContent[utils.ConfigDTO](configContent)
 		if err != nil {
-			r.utils.HandleError(err, "Failed to parse config.json")
+			r.runtime.HandleError(err, "Failed to parse config.json")
 		}
-		if config.migratedLegacyCommands {
+		if config.MigratedLegacyCommands() {
 			migratedLegacyCommands = true
 		}
 	}
 
 	if features.Scripts {
-		if err := r.fileManager.SyncScriptsFiles(&config.Scripts); err != nil {
-			r.utils.HandleError(err, "Failed to initialize scripts")
+		if err := scripts.SyncFiles(r.fileManager, &config.Scripts); err != nil {
+			r.runtime.HandleError(err, "Failed to initialize scripts")
 		}
 	}
 
 	if features.Notes {
-		if err := r.fileManager.SyncNotesContent(&config.Notes); err != nil {
-			r.utils.HandleError(err, "Failed to initialize notes")
+		if err := notes.SyncContent(r.fileManager, &config.Notes); err != nil {
+			r.runtime.HandleError(err, "Failed to initialize notes")
 		}
 	}
 
 	if migratedLegacyCommands {
 		if err := r.writeConfig(config); err != nil {
-			r.utils.HandleError(err, "Failed to migrate commands to scripts")
+			r.runtime.HandleError(err, "Failed to migrate commands to scripts")
 		}
 	}
 
 	for {
 		// Show multi-page view
 		result := r.viewBuilder.NewMultiPageView(config, features)
-		r.utils.ValidateInput(result)
+		r.runtime.ValidateInput(result)
 
 		// Parse result: "page|label|value"
 		parts := strings.SplitN(result, "|", 3)
@@ -116,66 +124,66 @@ func (r *Runner) Start() {
 
 		// Handle based on page type
 		switch page {
-		case "settings":
+		case settings.PageName:
 			// Handle settings toggle
 			switch label {
-			case "clear_frequency":
+			case settings.ClearFrequencyAction:
 				// Clear the frequency history
 				features.Frequencies = make(map[string]int)
-				jsonStr, err := ToJSON(features)
+				jsonStr, err := utils.ToJSON(features)
 				if err != nil {
-					r.utils.HandleError(err, "Failed to serialize features")
+					r.runtime.HandleError(err, "Failed to serialize features")
 				}
 				if err := r.fileManager.WriteFeaturesContent(jsonStr); err != nil {
-					r.utils.HandleError(err, "Failed to write features")
+					r.runtime.HandleError(err, "Failed to write features")
 				}
 
 				println(styles.Text("✓ Frequency history cleared", styles.AquamarineColor))
 			}
 			return
 
-		case "features":
+		case settings.FeaturesPageName:
 			switch label {
-			case "frequent_goTo":
+			case settings.FrequentGoToFeature:
 				features.FrequentGoTo = !features.FrequentGoTo
-			case "scripts":
+			case settings.ScriptsFeature:
 				features.Scripts = !features.Scripts
 				if features.Scripts {
-					if err := r.fileManager.SyncScriptsFiles(&config.Scripts); err != nil {
-						r.utils.HandleError(err, "Failed to initialize scripts")
+					if err := scripts.SyncFiles(r.fileManager, &config.Scripts); err != nil {
+						r.runtime.HandleError(err, "Failed to initialize scripts")
 					}
 				}
-			case "notes":
+			case settings.NotesFeature:
 				features.Notes = !features.Notes
 				if features.Notes {
-					if err := r.fileManager.SyncNotesContent(&config.Notes); err != nil {
-						r.utils.HandleError(err, "Failed to initialize notes")
+					if err := notes.SyncContent(r.fileManager, &config.Notes); err != nil {
+						r.runtime.HandleError(err, "Failed to initialize notes")
 					}
 				}
 			}
 
-			jsonStr, err := ToJSON(features)
+			jsonStr, err := utils.ToJSON(features)
 			if err != nil {
-				r.utils.HandleError(err, "Failed to serialize features")
+				r.runtime.HandleError(err, "Failed to serialize features")
 			}
 			if err := r.fileManager.WriteFeaturesContent(jsonStr); err != nil {
-				r.utils.HandleError(err, "Failed to write features")
+				r.runtime.HandleError(err, "Failed to write features")
 			}
 
 			continue
 
-		case "goTo", "frequent":
-			if page == "goTo" {
+		case gototab.PageName, frequent.PageName:
+			if page == gototab.PageName {
 				switch label {
-				case AddGoToAction:
+				case gototab.AddAction:
 					if err := r.createGoTo(config); err != nil {
-						r.utils.HandleError(err, "Failed to create goTo")
+						r.runtime.HandleError(err, "Failed to create goTo")
 					}
 					continue
-				case DeleteGoToAction:
+				case gototab.DeleteAction:
 					if r.confirmDelete("goTo", value) {
 						if err := r.deleteGoTo(config, features, value); err != nil {
-							r.utils.HandleError(err, "Failed to delete goTo")
+							r.runtime.HandleError(err, "Failed to delete goTo")
 						}
 					}
 					continue
@@ -185,43 +193,43 @@ func (r *Runner) Start() {
 			// Increment goTo frequency counter if it's a goTo navigation
 			if features.FrequentGoTo {
 				features.IncrementGoTo(label)
-				jsonStr, err := ToJSON(features)
+				jsonStr, err := utils.ToJSON(features)
 				if err != nil {
-					r.utils.HandleError(err, "Failed to serialize features")
+					r.runtime.HandleError(err, "Failed to serialize features")
 				}
 				if err := r.fileManager.WriteFeaturesContent(jsonStr); err != nil {
-					r.utils.HandleError(err, "Failed to write features")
+					r.runtime.HandleError(err, "Failed to write features")
 				}
 			}
 
 			// Expand ~ to home directory
-			expandedPath := r.utils.ExpandPath(value)
+			expandedPath := r.runtime.ExpandPath(value)
 
 			// Write cd command to file
-			cmdFile := r.fileManager.(*FileManager).AppDir + "/cmd-exec"
+			cmdFile := r.fileManager.CommandExecPath()
 			command := fmt.Sprintf("cd %s", expandedPath)
 
 			if err := r.fileManager.WriteFileContent(cmdFile, command); err != nil {
-				r.utils.HandleError(err, "Failed to write command file")
+				r.runtime.HandleError(err, "Failed to write command file")
 			}
 			return
 
-		case "scripts":
+		case scripts.PageName:
 			switch label {
-			case AddScriptAction:
+			case scripts.AddAction:
 				if err := r.createScript(config); err != nil {
-					r.utils.HandleError(err, "Failed to create script")
+					r.runtime.HandleError(err, "Failed to create script")
 				}
 				continue
-			case EditScriptAction:
+			case scripts.EditAction:
 				if err := r.editScript(value); err != nil {
-					r.utils.HandleError(err, "Failed to edit script")
+					r.runtime.HandleError(err, "Failed to edit script")
 				}
 				continue
-			case DeleteScriptAction:
+			case scripts.DeleteAction:
 				if r.confirmDelete("script", value) {
 					if err := r.deleteScript(config, value); err != nil {
-						r.utils.HandleError(err, "Failed to delete script")
+						r.runtime.HandleError(err, "Failed to delete script")
 					}
 				}
 				continue
@@ -233,21 +241,21 @@ func (r *Runner) Start() {
 			}
 
 			if err := r.runScript(label, value); err != nil {
-				r.utils.HandleError(err, "Failed to run script")
+				r.runtime.HandleError(err, "Failed to run script")
 			}
 			return
 
-		case "notes":
-			if label == AddNoteAction {
+		case notes.PageName:
+			if label == notes.AddAction {
 				if err := r.createNote(config); err != nil {
-					r.utils.HandleError(err, "Failed to create note")
+					r.runtime.HandleError(err, "Failed to create note")
 				}
 				continue
 			}
-			if label == DeleteNoteAction {
+			if label == notes.DeleteAction {
 				if r.confirmDelete("note", value) {
 					if err := r.deleteNote(config, value); err != nil {
-						r.utils.HandleError(err, "Failed to delete note")
+						r.runtime.HandleError(err, "Failed to delete note")
 					}
 				}
 				continue
@@ -258,29 +266,29 @@ func (r *Runner) Start() {
 				noteContent = value
 			}
 
-			notePath, err := r.fileManager.EnsureNoteFile(label, noteContent)
+			notePath, err := notes.EnsureFile(r.fileManager, label, noteContent)
 			if err != nil {
-				r.utils.HandleError(err, "Failed to prepare note")
+				r.runtime.HandleError(err, "Failed to prepare note")
 			}
 
-			if err := r.utils.OpenInNvim(notePath); err != nil {
-				r.utils.HandleError(err, "Failed to open note in nvim")
+			if err := r.runtime.OpenInNvim(notePath); err != nil {
+				r.runtime.HandleError(err, "Failed to open note in nvim")
 			}
 
-			if err := r.fileManager.SyncNotesContent(&config.Notes); err != nil {
-				r.utils.HandleError(err, "Failed to reload notes")
+			if err := notes.SyncContent(r.fileManager, &config.Notes); err != nil {
+				r.runtime.HandleError(err, "Failed to reload notes")
 			}
 		}
 	}
 }
 
-func (r *Runner) createGoTo(config *ConfigDTO) error {
+func (r *Runner) createGoTo(config *utils.ConfigDTO) error {
 	currentPath, err := r.fileManager.GetCurrentPath()
 	if err != nil {
 		return err
 	}
 
-	contractedPath := r.utils.ContractPath(currentPath)
+	contractedPath := r.runtime.ContractPath(currentPath)
 	defaultName := filepath.Base(currentPath)
 	if contractedPath == "~" {
 		defaultName = "home"
@@ -290,10 +298,10 @@ func (r *Runner) createGoTo(config *ConfigDTO) error {
 	}
 
 	goToName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New goTo name", defaultName))
-	if goToName == ExitSignal || goToName == "" {
+	if goToName == utils.ExitSignal || goToName == "" {
 		return nil
 	}
-	if IsDividerKey(goToName) {
+	if utils.IsDividerKey(goToName) {
 		return fmt.Errorf("goTo name cannot start with div")
 	}
 
@@ -308,23 +316,23 @@ func (r *Runner) createGoTo(config *ConfigDTO) error {
 		return err
 	}
 
-	config.GoTo.InsertInSection(sectionKey, goToName, contractedPath)
+	config.GoTo.InsertInSection(gototab.RootSection, sectionKey, goToName, contractedPath)
 	return r.writeConfig(config)
 }
 
-func (r *Runner) selectGoToSection(config *ConfigDTO) (string, bool, error) {
+func (r *Runner) selectGoToSection(config *utils.ConfigDTO) (string, bool, error) {
 	for {
-		selected := r.viewBuilder.NewSectionSelectView("Select goTo section", buildGoToSectionOptions(config.GoTo))
-		if selected.T == ExitSignal {
+		selected := r.viewBuilder.NewSectionSelectView("Select goTo section", gototab.BuildSectionOptions(config.GoTo))
+		if selected.T == utils.ExitSignal {
 			return "", false, nil
 		}
 
-		if selected.T != AddGoToSectionAction {
+		if selected.T != gototab.AddSectionAction {
 			return selected.T, true, nil
 		}
 
 		sectionName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New section name", "work"))
-		if sectionName == ExitSignal {
+		if sectionName == utils.ExitSignal {
 			return "", false, nil
 		}
 		if sectionName == "" {
@@ -335,40 +343,18 @@ func (r *Runner) selectGoToSection(config *ConfigDTO) (string, bool, error) {
 	}
 }
 
-func buildGoToSectionOptions(goTo OrderedMap) []ListItem {
-	sections := []ListItem{
-		{
-			T: RootGoToSection,
-			D: "top / no section",
-		},
-	}
-
-	for _, key := range goTo.Keys {
-		if !IsDividerKey(key) {
-			continue
-		}
-
-		sections = append(sections, ListItem{
-			T: key,
-			D: goTo.Values[key],
-		})
-	}
-
-	return sections
-}
-
-func (r *Runner) createNote(config *ConfigDTO) error {
+func (r *Runner) createNote(config *utils.ConfigDTO) error {
 	noteName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New note filename", "daily-note.md"))
-	if noteName == ExitSignal || noteName == "" {
+	if noteName == utils.ExitSignal || noteName == "" {
 		return nil
 	}
 
-	notePath, err := r.fileManager.EnsureNoteFile(noteName, "")
+	notePath, err := notes.EnsureFile(r.fileManager, noteName, "")
 	if err != nil {
 		return err
 	}
 
-	if err := r.utils.OpenInNvim(notePath); err != nil {
+	if err := r.runtime.OpenInNvim(notePath); err != nil {
 		return err
 	}
 
@@ -378,7 +364,7 @@ func (r *Runner) createNote(config *ConfigDTO) error {
 	}
 
 	config.Notes.Set(noteName, content)
-	jsonStr, err := ToJSON(config)
+	jsonStr, err := utils.ToJSON(config)
 	if err != nil {
 		return err
 	}
@@ -387,29 +373,29 @@ func (r *Runner) createNote(config *ConfigDTO) error {
 		return err
 	}
 
-	return r.fileManager.SyncNotesContent(&config.Notes)
+	return notes.SyncContent(r.fileManager, &config.Notes)
 }
 
-func (r *Runner) createScript(config *ConfigDTO) error {
+func (r *Runner) createScript(config *utils.ConfigDTO) error {
 	scriptName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New script filename", "deploy.lua"))
-	if scriptName == ExitSignal || scriptName == "" {
+	if scriptName == utils.ExitSignal || scriptName == "" {
 		return nil
 	}
 
 	description := strings.TrimSpace(r.viewBuilder.NewTextFieldView("Script description", "what this script does"))
-	if description == ExitSignal {
+	if description == utils.ExitSignal {
 		return nil
 	}
 	if description == "" {
 		description = "No description"
 	}
 
-	scriptPath, err := r.fileManager.EnsureScriptFile(scriptName, description)
+	scriptPath, err := scripts.EnsureFile(r.fileManager, scriptName, description)
 	if err != nil {
 		return err
 	}
 
-	if err := r.utils.OpenInNvim(scriptPath); err != nil {
+	if err := r.runtime.OpenInNvim(scriptPath); err != nil {
 		return err
 	}
 
@@ -418,7 +404,7 @@ func (r *Runner) createScript(config *ConfigDTO) error {
 		return err
 	}
 
-	return r.fileManager.SyncScriptsFiles(&config.Scripts)
+	return scripts.SyncFiles(r.fileManager, &config.Scripts)
 }
 
 func (r *Runner) editScript(scriptName string) error {
@@ -427,15 +413,15 @@ func (r *Runner) editScript(scriptName string) error {
 		return nil
 	}
 
-	scriptPath, err := r.fileManager.EnsureScriptFile(scriptName, "")
+	scriptPath, err := scripts.EnsureFile(r.fileManager, scriptName, "")
 	if err != nil {
 		return err
 	}
 
-	return r.utils.OpenInNvim(scriptPath)
+	return r.runtime.OpenInNvim(scriptPath)
 }
 
-func (r *Runner) deleteGoTo(config *ConfigDTO, features *FeaturesDTO, goToName string) error {
+func (r *Runner) deleteGoTo(config *utils.ConfigDTO, features *settings.FeaturesDTO, goToName string) error {
 	goToName = strings.TrimSpace(goToName)
 	if goToName == "" {
 		return nil
@@ -452,13 +438,13 @@ func (r *Runner) deleteGoTo(config *ConfigDTO, features *FeaturesDTO, goToName s
 	return r.writeFeatures(features)
 }
 
-func (r *Runner) deleteNote(config *ConfigDTO, noteName string) error {
+func (r *Runner) deleteNote(config *utils.ConfigDTO, noteName string) error {
 	noteName = strings.TrimSpace(noteName)
 	if noteName == "" {
 		return nil
 	}
 
-	if err := r.fileManager.DeleteNoteFile(noteName); err != nil {
+	if err := notes.DeleteFile(r.fileManager, noteName); err != nil {
 		return err
 	}
 
@@ -466,13 +452,13 @@ func (r *Runner) deleteNote(config *ConfigDTO, noteName string) error {
 	return r.writeConfig(config)
 }
 
-func (r *Runner) deleteScript(config *ConfigDTO, scriptName string) error {
+func (r *Runner) deleteScript(config *utils.ConfigDTO, scriptName string) error {
 	scriptName = strings.TrimSpace(scriptName)
 	if scriptName == "" {
 		return nil
 	}
 
-	if err := r.fileManager.DeleteScriptFile(scriptName); err != nil {
+	if err := scripts.DeleteFile(r.fileManager, scriptName); err != nil {
 		return err
 	}
 
@@ -481,12 +467,12 @@ func (r *Runner) deleteScript(config *ConfigDTO, scriptName string) error {
 }
 
 func (r *Runner) runScript(scriptName, description string) error {
-	scriptPath, err := r.fileManager.EnsureScriptFile(scriptName, description)
+	scriptPath, err := scripts.EnsureFile(r.fileManager, scriptName, description)
 	if err != nil {
 		return err
 	}
 
-	return r.utils.RunLuaScript(scriptPath)
+	return r.runtime.RunLuaScript(scriptPath)
 }
 
 func (r *Runner) confirmScriptExecution(scriptName string) bool {
@@ -497,8 +483,8 @@ func (r *Runner) confirmDelete(kind, name string) bool {
 	return r.viewBuilder.NewConfirmView(fmt.Sprintf("Delete %s %q?", kind, name))
 }
 
-func (r *Runner) writeConfig(config *ConfigDTO) error {
-	jsonStr, err := ToJSON(config)
+func (r *Runner) writeConfig(config *utils.ConfigDTO) error {
+	jsonStr, err := utils.ToJSON(config)
 	if err != nil {
 		return err
 	}
@@ -506,8 +492,8 @@ func (r *Runner) writeConfig(config *ConfigDTO) error {
 	return r.fileManager.WriteConfigContent(jsonStr)
 }
 
-func (r *Runner) writeFeatures(features *FeaturesDTO) error {
-	jsonStr, err := ToJSON(features)
+func (r *Runner) writeFeatures(features *settings.FeaturesDTO) error {
+	jsonStr, err := utils.ToJSON(features)
 	if err != nil {
 		return err
 	}
@@ -515,10 +501,10 @@ func (r *Runner) writeFeatures(features *FeaturesDTO) error {
 	return r.fileManager.WriteFeaturesContent(jsonStr)
 }
 
-func (r *Runner) migrateLegacyFeatures(features *FeaturesDTO) {
+func (r *Runner) migrateLegacyFeatures(features *settings.FeaturesDTO) {
 	optionsContent, err := r.fileManager.GetOptionsContent()
 	if err == nil && strings.TrimSpace(optionsContent) != "" {
-		options, err := ParseJSONContent[OptionsDTO](optionsContent)
+		options, err := utils.ParseJSONContent[settings.OptionsDTO](optionsContent)
 		if err == nil {
 			features.FrequentGoTo = options.FrequentGoTo
 		}
@@ -526,7 +512,7 @@ func (r *Runner) migrateLegacyFeatures(features *FeaturesDTO) {
 
 	goToFreqContent, err := r.fileManager.GetGoToFrequencyContent()
 	if err == nil && strings.TrimSpace(goToFreqContent) != "" {
-		goToFrequency, err := ParseJSONContent[GoToFrequencyDTO](goToFreqContent)
+		goToFrequency, err := utils.ParseJSONContent[frequent.GoToFrequencyDTO](goToFreqContent)
 		if err == nil && goToFrequency.Frequencies != nil {
 			features.Frequencies = goToFrequency.Frequencies
 		}

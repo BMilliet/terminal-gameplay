@@ -1,4 +1,4 @@
-package src
+package settings
 
 type OptionsDTO struct {
 	FrequentGoTo bool `json:"frequent_goTo"`

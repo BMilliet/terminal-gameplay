@@ -1,8 +1,9 @@
-package src
+package settings
 
 import (
 	"encoding/json"
-	"sort"
+
+	"terminal-gameplay/internal/frequent"
 )
 
 type FeaturesDTO struct {
@@ -55,43 +56,17 @@ func (f *FeaturesDTO) UnmarshalJSON(data []byte) error {
 }
 
 func (f *FeaturesDTO) Normalize() {
-	if f.Frequencies == nil {
-		f.Frequencies = make(map[string]int)
-	}
+	f.Frequencies = frequent.Normalize(f.Frequencies)
 }
 
 func (f *FeaturesDTO) IncrementGoTo(key string) {
-	f.Normalize()
-	f.Frequencies[key]++
+	f.Frequencies = frequent.Increment(f.Frequencies, key)
 }
 
 func (f *FeaturesDTO) GetTopGoToKeys() []string {
-	if len(f.Frequencies) == 0 {
-		return []string{}
-	}
-
-	type keyFreq struct {
-		key  string
-		freq int
-	}
-
-	items := make([]keyFreq, 0, len(f.Frequencies))
-	for k, v := range f.Frequencies {
-		items = append(items, keyFreq{k, v})
-	}
-
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].freq > items[j].freq
-	})
-
-	keys := make([]string, len(items))
-	for i, item := range items {
-		keys[i] = item.key
-	}
-
-	return keys
+	return frequent.TopKeys(f.Frequencies)
 }
 
 func (f *FeaturesDTO) FrequencyIsEmpty() bool {
-	return len(f.Frequencies) == 0
+	return frequent.IsEmpty(f.Frequencies)
 }

@@ -1,0 +1,64 @@
+package utils
+
+import (
+	"encoding/json"
+	"reflect"
+	"testing"
+)
+
+func TestOrderedMapPreservesJSONOrder(t *testing.T) {
+	var items OrderedMap
+	if err := json.Unmarshal([]byte(`{"first":"1","second":"2","third":"3"}`), &items); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+
+	wantKeys := []string{"first", "second", "third"}
+	if !reflect.DeepEqual(items.Keys, wantKeys) {
+		t.Fatalf("keys = %#v, want %#v", items.Keys, wantKeys)
+	}
+
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	wantJSON := `{"first":"1","second":"2","third":"3"}`
+	if string(encoded) != wantJSON {
+		t.Fatalf("json = %s, want %s", encoded, wantJSON)
+	}
+}
+
+func TestInsertInSectionPlacesItemBeforeNextDivider(t *testing.T) {
+	items := OrderedMap{
+		Keys: []string{"home", "div", "api", "div2", "notes"},
+		Values: map[string]string{
+			"home":  "~",
+			"div":   "work",
+			"api":   "~/api",
+			"div2":  "personal",
+			"notes": "~/notes",
+		},
+	}
+
+	items.InsertInSection("__ROOT__", "div", "web", "~/web")
+
+	wantKeys := []string{"home", "div", "api", "web", "div2", "notes"}
+	if !reflect.DeepEqual(items.Keys, wantKeys) {
+		t.Fatalf("keys = %#v, want %#v", items.Keys, wantKeys)
+	}
+	if got := items.Values["web"]; got != "~/web" {
+		t.Fatalf("web value = %q, want ~/web", got)
+	}
+}
+
+func TestFileNameWithExtensionSanitizesPathLikeInput(t *testing.T) {
+	got := FileNameWithExtension("../deploy", ".lua")
+
+	if got != "deploy.lua" {
+		t.Fatalf("FileNameWithExtension() = %q, want deploy.lua", got)
+	}
+
+	got = FileNameWithExtension("report.md", ".md")
+	if got != "report.md" {
+		t.Fatalf("FileNameWithExtension() = %q, want report.md", got)
+	}
+}

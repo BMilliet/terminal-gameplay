@@ -1,4 +1,4 @@
-package src
+package utils
 
 import (
 	"fmt"
@@ -11,6 +11,7 @@ type FileManagerInterface interface {
 	CheckIfPathExists(path string) (bool, error)
 	ReadFileContent(filePath string) (string, error)
 	WriteFileContent(filePath, content string) error
+	DeleteFileIfExists(path string) error
 	GetConfigContent() (string, error)
 	WriteConfigContent(content string) error
 	GetFeaturesContent() (string, error)
@@ -21,14 +22,9 @@ type FileManagerInterface interface {
 	WriteGoToFrequencyContent(content string) error
 	EnsureNotesDir() error
 	EnsureScriptsDir() error
-	GetNotePath(title string) string
-	GetScriptPath(name string) string
-	EnsureNoteFile(title, content string) (string, error)
-	EnsureScriptFile(name, description string) (string, error)
-	DeleteNoteFile(title string) error
-	DeleteScriptFile(name string) error
-	SyncNotesContent(notes *OrderedMap) error
-	SyncScriptsFiles(scripts *OrderedMap) error
+	NotesPath(fileName string) string
+	ScriptsPath(fileName string) string
+	CommandExecPath() string
 	BasicSetup() error
 	GetCurrentPath() (string, error)
 	GetCurrentDirectoryName() (string, error)
@@ -201,123 +197,25 @@ func (m *FileManager) EnsureScriptsDir() error {
 	return m.ensureDir(m.ScriptsDir)
 }
 
-func (m *FileManager) GetNotePath(title string) string {
-	return filepath.Join(m.NotesDir, noteFileName(title))
+func (m *FileManager) NotesPath(fileName string) string {
+	return filepath.Join(m.NotesDir, fileName)
 }
 
-func (m *FileManager) GetScriptPath(name string) string {
-	return filepath.Join(m.ScriptsDir, scriptFileName(name))
+func (m *FileManager) ScriptsPath(fileName string) string {
+	return filepath.Join(m.ScriptsDir, fileName)
 }
 
-func (m *FileManager) EnsureNoteFile(title, content string) (string, error) {
-	if err := m.EnsureNotesDir(); err != nil {
-		return "", err
-	}
-
-	notePath := m.GetNotePath(title)
-	exists, err := m.CheckIfPathExists(notePath)
-	if err != nil {
-		return "", err
-	}
-
-	if !exists {
-		if err := m.WriteFileContent(notePath, content); err != nil {
-			return "", fmt.Errorf("EnsureNoteFile -> %s %v", notePath, err)
-		}
-	}
-
-	return notePath, nil
+func (m *FileManager) CommandExecPath() string {
+	return filepath.Join(m.AppDir, CommandExecFileName)
 }
 
-func (m *FileManager) EnsureScriptFile(name, description string) (string, error) {
-	if err := m.EnsureScriptsDir(); err != nil {
-		return "", err
-	}
-
-	scriptPath := m.GetScriptPath(name)
-	exists, err := m.CheckIfPathExists(scriptPath)
-	if err != nil {
-		return "", err
-	}
-
-	if !exists {
-		content := defaultLuaScriptContent(name, description)
-		if err := m.WriteFileContent(scriptPath, content); err != nil {
-			return "", fmt.Errorf("EnsureScriptFile -> %s %v", scriptPath, err)
-		}
-	}
-
-	return scriptPath, nil
-}
-
-func (m *FileManager) DeleteNoteFile(title string) error {
-	return m.deleteFileIfExists(m.GetNotePath(title))
-}
-
-func (m *FileManager) DeleteScriptFile(name string) error {
-	return m.deleteFileIfExists(m.GetScriptPath(name))
-}
-
-func (m *FileManager) deleteFileIfExists(path string) error {
+func (m *FileManager) DeleteFileIfExists(path string) error {
 	err := os.Remove(path)
 	if err == nil || os.IsNotExist(err) {
 		return nil
 	}
 
-	return fmt.Errorf("deleteFileIfExists -> %s %v", path, err)
-}
-
-func (m *FileManager) SyncNotesContent(notes *OrderedMap) error {
-	if notes == nil {
-		return nil
-	}
-
-	for _, key := range notes.Keys {
-		if IsDividerKey(key) {
-			continue
-		}
-
-		content, ok := notes.Values[key]
-		if !ok {
-			continue
-		}
-
-		notePath, err := m.EnsureNoteFile(key, content)
-		if err != nil {
-			return fmt.Errorf("SyncNotesContent -> %s %v", key, err)
-		}
-
-		fileContent, err := m.ReadFileContent(notePath)
-		if err != nil {
-			return fmt.Errorf("SyncNotesContent -> read %s %v", notePath, err)
-		}
-		notes.Values[key] = fileContent
-	}
-
-	return nil
-}
-
-func (m *FileManager) SyncScriptsFiles(scripts *OrderedMap) error {
-	if scripts == nil {
-		return nil
-	}
-
-	for _, key := range scripts.Keys {
-		if IsDividerKey(key) {
-			continue
-		}
-
-		description, ok := scripts.Values[key]
-		if !ok {
-			continue
-		}
-
-		if _, err := m.EnsureScriptFile(key, description); err != nil {
-			return fmt.Errorf("SyncScriptsFiles -> %s %v", key, err)
-		}
-	}
-
-	return nil
+	return fmt.Errorf("DeleteFileIfExists -> %s %v", path, err)
 }
 
 func (m *FileManager) BasicSetup() error {
@@ -365,15 +263,7 @@ func (m *FileManager) GetCurrentDirectoryName() (string, error) {
 	return filepath.Base(dir), nil
 }
 
-func noteFileName(title string) string {
-	return fileNameWithExtension(title, NoteFileExtension)
-}
-
-func scriptFileName(name string) string {
-	return fileNameWithExtension(name, ScriptFileExtension)
-}
-
-func fileNameWithExtension(name, extension string) string {
+func FileNameWithExtension(name, extension string) string {
 	fileName := strings.TrimSpace(name)
 	fileName = strings.ReplaceAll(fileName, "\\", "-")
 	fileName = filepath.Base(fileName)
@@ -388,18 +278,4 @@ func fileNameWithExtension(name, extension string) string {
 	}
 
 	return fileName
-}
-
-func defaultLuaScriptContent(name, description string) string {
-	lines := []string{
-		fmt.Sprintf("-- %s", strings.TrimSpace(name)),
-	}
-
-	description = strings.TrimSpace(description)
-	if description != "" {
-		lines = append(lines, fmt.Sprintf("-- %s", description))
-	}
-
-	lines = append(lines, "", fmt.Sprintf("print(%q)", "Hello from "+strings.TrimSpace(name)), "")
-	return strings.Join(lines, "\n")
 }

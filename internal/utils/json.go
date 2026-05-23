@@ -1,4 +1,4 @@
-package src
+package utils
 
 import (
 	"encoding/json"
@@ -6,7 +6,15 @@ import (
 	"strings"
 )
 
-const notePreviewMaxRunes = 64
+type ListItem struct {
+	T     string
+	D     string
+	IsDiv bool
+}
+
+func (i ListItem) Title() string       { return i.T }
+func (i ListItem) Description() string { return i.D }
+func (i ListItem) FilterValue() string { return i.T }
 
 // ParseJSONContent parses JSON string into a struct
 func ParseJSONContent[T any](content string) (*T, error) {
@@ -27,8 +35,8 @@ func ToJSON[T any](data T) (string, error) {
 	return string(bytes), nil
 }
 
-// ConfigItemsToListItems converts config items to list items maintaining JSON order
-func ConfigItemsToListItems(items OrderedMap) []ListItem {
+// OrderedMapToListItems converts ordered map items to list items preserving JSON order.
+func OrderedMapToListItems(items OrderedMap) []ListItem {
 	listItems := []ListItem{}
 	for _, key := range items.Keys {
 		if value, ok := items.Values[key]; ok {
@@ -43,42 +51,8 @@ func ConfigItemsToListItems(items OrderedMap) []ListItem {
 	return listItems
 }
 
-func ConfigNotesToListItems(items OrderedMap) []ListItem {
-	listItems := []ListItem{}
-	for _, key := range items.Keys {
-		if value, ok := items.Values[key]; ok {
-			isDiv := IsDividerKey(key)
-			description := value
-			if !isDiv {
-				description = NotePreview(value)
-			}
-
-			listItems = append(listItems, ListItem{
-				T:     key,
-				D:     description,
-				IsDiv: isDiv,
-			})
-		}
-	}
-	return listItems
-}
-
 func IsDividerKey(key string) bool {
 	return strings.HasPrefix(key, "div")
-}
-
-func NotePreview(text string) string {
-	preview := strings.Join(strings.Fields(text), " ")
-	if preview == "" {
-		return "(empty note)"
-	}
-
-	runes := []rune(preview)
-	if len(runes) <= notePreviewMaxRunes {
-		return preview
-	}
-
-	return string(runes[:notePreviewMaxRunes-3]) + "..."
 }
 
 // GetDefaultConfig returns default configuration

@@ -1,9 +1,12 @@
-package src
+package ui
 
 import (
 	"fmt"
 	"os"
 	"strings"
+
+	gototab "terminal-gameplay/internal/goto"
+	"terminal-gameplay/internal/utils"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -11,9 +14,9 @@ import (
 
 type SectionSelectViewModel struct {
 	title    string
-	sections []ListItem
+	sections []utils.ListItem
 	cursor   int
-	selected *ListItem
+	selected *utils.ListItem
 	quitting bool
 	styles   *Styles
 }
@@ -27,12 +30,12 @@ func (m SectionSelectViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc", "q":
-			*m.selected = ListItem{T: ExitSignal}
+			*m.selected = utils.ListItem{T: utils.ExitSignal}
 			m.quitting = true
 			return m, tea.Quit
 
 		case "a":
-			*m.selected = ListItem{T: AddGoToSectionAction, D: "create new section"}
+			*m.selected = utils.ListItem{T: gototab.AddSectionAction, D: "create new section"}
 			m.quitting = true
 			return m, tea.Quit
 
@@ -111,7 +114,7 @@ func (m SectionSelectViewModel) View() string {
 	return b.String()
 }
 
-func SectionSelectView(title string, sections []ListItem, selected *ListItem) {
+func SectionSelectView(title string, sections []utils.ListItem, selected *utils.ListItem) {
 	m := SectionSelectViewModel{
 		title:    title,
 		sections: sections,
@@ -125,8 +128,8 @@ func SectionSelectView(title string, sections []ListItem, selected *ListItem) {
 	}
 }
 
-func sectionHint(section ListItem) string {
-	if section.T == RootGoToSection {
+func sectionHint(section utils.ListItem) string {
+	if section.T == gototab.RootSection {
 		return "root"
 	}
 	return section.T

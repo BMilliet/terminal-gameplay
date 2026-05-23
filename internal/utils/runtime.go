@@ -1,4 +1,4 @@
-package src
+package utils
 
 import (
 	"fmt"
@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 type UtilsInterface interface {
@@ -35,16 +37,14 @@ func (u *Utils) ValidateInput(input string) {
 }
 
 func (u *Utils) ExitWithError(message string) {
-	styles := DefaultStyles()
-	fmt.Println(styles.Text(message, styles.ErrorColor))
+	fmt.Println(errorText(message))
 	os.Exit(1)
 }
 
 func (u *Utils) HandleError(err error, message string) {
 	if err != nil {
-		styles := DefaultStyles()
 		fullMessage := fmt.Sprintf("%s: %v", message, err)
-		fmt.Println(styles.Text(fullMessage, styles.ErrorColor))
+		fmt.Println(errorText(fullMessage))
 		os.Exit(1)
 	}
 }
@@ -151,4 +151,10 @@ func (u *Utils) ChangeDirectory(path string) error {
 	fmt.Printf("cd %s\n", expandedPath)
 
 	return nil
+}
+
+func errorText(message string) string {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#F38BA8")).
+		Render(message)
 }

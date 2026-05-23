@@ -1,11 +1,16 @@
-package src
+package ui
+
+import (
+	"terminal-gameplay/internal/settings"
+	"terminal-gameplay/internal/utils"
+)
 
 type ViewBuilderInterface interface {
-	NewListView(title string, op []ListItem, height int) ListItem
+	NewListView(title string, op []utils.ListItem, height int) utils.ListItem
 	NewConfirmView(title string) bool
-	NewSectionSelectView(title string, sections []ListItem) ListItem
+	NewSectionSelectView(title string, sections []utils.ListItem) utils.ListItem
 	NewTextFieldView(title, placeHolder string) string
-	NewMultiPageView(config *ConfigDTO, features *FeaturesDTO) string
+	NewMultiPageView(config *utils.ConfigDTO, features *settings.FeaturesDTO) string
 }
 
 type ViewBuilder struct{}
@@ -14,8 +19,8 @@ func NewViewBuilder() *ViewBuilder {
 	return &ViewBuilder{}
 }
 
-func (b *ViewBuilder) NewListView(title string, op []ListItem, height int) ListItem {
-	endValue := ListItem{}
+func (b *ViewBuilder) NewListView(title string, op []utils.ListItem, height int) utils.ListItem {
+	endValue := utils.ListItem{}
 	ListView(title, op, height, &endValue)
 	return endValue
 }
@@ -26,8 +31,8 @@ func (b *ViewBuilder) NewConfirmView(title string) bool {
 	return confirmed
 }
 
-func (b *ViewBuilder) NewSectionSelectView(title string, sections []ListItem) ListItem {
-	selected := ListItem{}
+func (b *ViewBuilder) NewSectionSelectView(title string, sections []utils.ListItem) utils.ListItem {
+	selected := utils.ListItem{}
 	SectionSelectView(title, sections, &selected)
 	return selected
 }
@@ -38,7 +43,7 @@ func (b *ViewBuilder) NewTextFieldView(title, placeHolder string) string {
 	return endValue
 }
 
-func (b *ViewBuilder) NewMultiPageView(config *ConfigDTO, features *FeaturesDTO) string {
+func (b *ViewBuilder) NewMultiPageView(config *utils.ConfigDTO, features *settings.FeaturesDTO) string {
 	selected := ""
 	MultiPageView(config, features, &selected)
 	return selected
