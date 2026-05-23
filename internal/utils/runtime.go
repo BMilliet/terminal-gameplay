@@ -31,7 +31,6 @@ func NewUtils() *Utils {
 
 func (u *Utils) ValidateInput(input string) {
 	if input == ExitSignal {
-		fmt.Println("\nExiting...")
 		os.Exit(0)
 	}
 }

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"terminal-gameplay/internal/notes"
 	"terminal-gameplay/internal/scripts"
 	"terminal-gameplay/internal/settings"
+	toolstab "terminal-gameplay/internal/tools"
 	"terminal-gameplay/internal/ui"
 	"terminal-gameplay/internal/utils"
 )
@@ -107,9 +109,11 @@ func (r *Runner) Start() {
 		}
 	}
 
+	nextPage := ""
 	for {
 		// Show multi-page view
-		result := r.viewBuilder.NewMultiPageView(config, features)
+		result := r.viewBuilder.NewMultiPageView(config, features, nextPage)
+		nextPage = ""
 		r.runtime.ValidateInput(result)
 
 		// Parse result: "page|label|value"
@@ -171,6 +175,20 @@ func (r *Runner) Start() {
 			}
 
 			continue
+
+		case toolstab.PageName:
+			switch label {
+			case toolstab.SearchReplaceAction:
+				nextPage = toolstab.PageName
+				if err := r.searchReplace(styles); err != nil {
+					if errors.Is(err, toolstab.ErrRipgrepNotFound) {
+						fmt.Println(styles.Text("ripgrep (rg) not found in PATH; search/replace aborted", styles.ErrorColor))
+						continue
+					}
+					r.runtime.HandleError(err, "Failed to run search/replace")
+				}
+				continue
+			}
 
 		case gototab.PageName, frequent.PageName:
 			if page == gototab.PageName {
@@ -278,6 +296,139 @@ func (r *Runner) Start() {
 			if err := notes.SyncContent(r.fileManager, &config.Notes); err != nil {
 				r.runtime.HandleError(err, "Failed to reload notes")
 			}
+		}
+	}
+}
+
+func (r *Runner) searchReplace(styles *ui.Styles) error {
+	if err := toolstab.EnsureRipgrep(); err != nil {
+		return err
+	}
+
+	search := r.viewBuilder.NewTextFieldView("search:", "term")
+	if search == utils.ExitSignal {
+		return nil
+	}
+
+	replace := r.viewBuilder.NewTextFieldView("replace:", "replacement")
+	if replace == utils.ExitSignal {
+		return nil
+	}
+
+	root, err := r.fileManager.GetCurrentPath()
+	if err != nil {
+		return err
+	}
+
+	files, err := toolstab.FindFiles(root, search)
+	if err != nil {
+		return err
+	}
+
+	items := toolstab.FileListItems(root, files)
+	if len(items) == 0 {
+		fmt.Println(styles.Text("No files found with the search term", styles.FooterColor))
+		return nil
+	}
+
+	originalContent := make(map[string]string)
+	for {
+		selected := r.viewBuilder.NewSearchReplaceFilesView(
+			fmt.Sprintf("search/replace: %q -> %q", search, replace),
+			items,
+			10,
+		)
+
+		switch selected.T {
+		case utils.ExitSignal:
+			return nil
+		case toolstab.ReplaceAllAction:
+			if err := r.replaceAllVisibleItems(items, search, replace, originalContent); err != nil {
+				return err
+			}
+			continue
+		}
+
+		filePath := selected.D
+		if filePath == "" {
+			filePath = selected.T
+		}
+
+		if selected.Status == toolstab.ReplacedStatus {
+			if err := r.restoreReplacedItem(items, filePath, originalContent); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := r.replacePendingItem(items, filePath, search, replace, originalContent); err != nil {
+			return err
+		}
+	}
+}
+
+func (r *Runner) replaceAllVisibleItems(items []utils.ListItem, search, replace string, originalContent map[string]string) error {
+	for _, item := range items {
+		if item.Status == toolstab.ReplacedStatus {
+			continue
+		}
+
+		filePath := item.D
+		if filePath == "" {
+			filePath = item.T
+		}
+
+		if err := r.replacePendingItem(items, filePath, search, replace, originalContent); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *Runner) replacePendingItem(items []utils.ListItem, filePath, search, replace string, originalContent map[string]string) error {
+	content, err := toolstab.ReadFileContent(filePath)
+	if err != nil {
+		return err
+	}
+
+	count := strings.Count(content, search)
+	if count == 0 {
+		return nil
+	}
+
+	if _, ok := originalContent[filePath]; !ok {
+		originalContent[filePath] = content
+	}
+
+	if err := toolstab.WriteFileContent(filePath, strings.ReplaceAll(content, search, replace)); err != nil {
+		return err
+	}
+
+	markItemStatus(items, filePath, toolstab.ReplacedStatus)
+	return nil
+}
+
+func (r *Runner) restoreReplacedItem(items []utils.ListItem, filePath string, originalContent map[string]string) error {
+	content, ok := originalContent[filePath]
+	if !ok {
+		return nil
+	}
+
+	if err := toolstab.WriteFileContent(filePath, content); err != nil {
+		return err
+	}
+
+	delete(originalContent, filePath)
+	markItemStatus(items, filePath, "")
+	return nil
+}
+
+func markItemStatus(items []utils.ListItem, filePath, status string) {
+	for i := range items {
+		if items[i].D == filePath || items[i].T == filePath {
+			items[i].Status = status
+			return
 		}
 	}
 }

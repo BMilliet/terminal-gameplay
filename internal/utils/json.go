@@ -7,9 +7,10 @@ import (
 )
 
 type ListItem struct {
-	T     string
-	D     string
-	IsDiv bool
+	T      string
+	D      string
+	IsDiv  bool
+	Status string
 }
 
 func (i ListItem) Title() string       { return i.T }

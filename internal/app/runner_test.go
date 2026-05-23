@@ -3,6 +3,8 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -10,6 +12,7 @@ import (
 	gototab "terminal-gameplay/internal/goto"
 	"terminal-gameplay/internal/scripts"
 	"terminal-gameplay/internal/settings"
+	toolstab "terminal-gameplay/internal/tools"
 	"terminal-gameplay/internal/utils"
 )
 
@@ -197,10 +200,11 @@ func (f *fakeRuntime) ChangeDirectory(path string) error {
 }
 
 type fakeViewBuilder struct {
-	multiPageResults []string
-	textResults      []string
-	confirmResults   []bool
-	sectionResults   []utils.ListItem
+	multiPageResults         []string
+	textResults              []string
+	confirmResults           []bool
+	sectionResults           []utils.ListItem
+	searchReplaceFileResults []utils.ListItem
 }
 
 func (f *fakeViewBuilder) NewListView(title string, op []utils.ListItem, height int) utils.ListItem {
@@ -237,7 +241,17 @@ func (f *fakeViewBuilder) NewTextFieldView(title, placeHolder string) string {
 	return result
 }
 
-func (f *fakeViewBuilder) NewMultiPageView(config *utils.ConfigDTO, features *settings.FeaturesDTO) string {
+func (f *fakeViewBuilder) NewSearchReplaceFilesView(title string, files []utils.ListItem, height int) utils.ListItem {
+	if len(f.searchReplaceFileResults) == 0 {
+		return utils.ListItem{T: utils.ExitSignal}
+	}
+
+	result := f.searchReplaceFileResults[0]
+	f.searchReplaceFileResults = f.searchReplaceFileResults[1:]
+	return result
+}
+
+func (f *fakeViewBuilder) NewMultiPageView(config *utils.ConfigDTO, features *settings.FeaturesDTO, initialPage ...string) string {
 	if len(f.multiPageResults) == 0 {
 		return "invalid"
 	}
@@ -440,6 +454,124 @@ func TestStartScriptRunUsesLuaRunnerMockAfterConfirmation(t *testing.T) {
 	}
 }
 
+func TestStartSearchReplaceSelectedFileUsesRipgrepResults(t *testing.T) {
+	root := t.TempDir()
+	one := filepath.Join(root, "one.txt")
+	two := filepath.Join(root, "two.txt")
+	mustWriteFile(t, one, "foo one foo")
+	mustWriteFile(t, two, "foo two")
+	installFakeRipgrep(t, []string{"one.txt", "two.txt"})
+
+	fm := newFakeFileManager()
+	fm.currentPath = root
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{
+		FrequentGoTo: false,
+		Scripts:      false,
+		Notes:        false,
+		Frequencies:  make(map[string]int),
+	})
+
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{
+			toolstab.PageName + "|" + toolstab.SearchReplaceAction + "|find and replace",
+			"invalid",
+		},
+		textResults: []string{"foo", "bar"},
+		searchReplaceFileResults: []utils.ListItem{
+			{T: "one.txt", D: one},
+			{T: utils.ExitSignal},
+		},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	if got := mustReadFile(t, one); got != "bar one bar" {
+		t.Fatalf("one.txt = %q, want selected file replaced", got)
+	}
+	if got := mustReadFile(t, two); got != "foo two" {
+		t.Fatalf("two.txt = %q, want unselected file unchanged", got)
+	}
+}
+
+func TestStartSearchReplaceAllUsesRemainingRipgrepResults(t *testing.T) {
+	root := t.TempDir()
+	one := filepath.Join(root, "one.txt")
+	two := filepath.Join(root, "two.txt")
+	mustWriteFile(t, one, "foo one foo")
+	mustWriteFile(t, two, "foo two")
+	installFakeRipgrep(t, []string{"one.txt", "two.txt"})
+
+	fm := newFakeFileManager()
+	fm.currentPath = root
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{
+		FrequentGoTo: false,
+		Scripts:      false,
+		Notes:        false,
+		Frequencies:  make(map[string]int),
+	})
+
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{
+			toolstab.PageName + "|" + toolstab.SearchReplaceAction + "|find and replace",
+			"invalid",
+		},
+		textResults: []string{"foo", "bar"},
+		searchReplaceFileResults: []utils.ListItem{
+			{T: toolstab.ReplaceAllAction},
+		},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	if got := mustReadFile(t, one); got != "bar one bar" {
+		t.Fatalf("one.txt = %q, want all occurrences replaced", got)
+	}
+	if got := mustReadFile(t, two); got != "bar two" {
+		t.Fatalf("two.txt = %q, want all occurrences replaced", got)
+	}
+}
+
+func TestStartSearchReplaceEnterOnReplacedFileRestoresOriginalContent(t *testing.T) {
+	root := t.TempDir()
+	one := filepath.Join(root, "one.txt")
+	mustWriteFile(t, one, "foo one bar")
+	installFakeRipgrep(t, []string{"one.txt"})
+
+	fm := newFakeFileManager()
+	fm.currentPath = root
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{
+		FrequentGoTo: false,
+		Scripts:      false,
+		Notes:        false,
+		Frequencies:  make(map[string]int),
+	})
+
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{
+			toolstab.PageName + "|" + toolstab.SearchReplaceAction + "|find and replace",
+			"invalid",
+		},
+		textResults: []string{"foo", "bar"},
+		searchReplaceFileResults: []utils.ListItem{
+			{T: "one.txt", D: one},
+			{T: "one.txt", D: one, Status: toolstab.ReplacedStatus},
+			{T: utils.ExitSignal},
+		},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	if got := mustReadFile(t, one); got != "foo one bar" {
+		t.Fatalf("one.txt = %q, want original content restored", got)
+	}
+}
+
 func mustJSON(t *testing.T, value any) string {
 	t.Helper()
 
@@ -468,4 +600,43 @@ func last(t *testing.T, values []string) string {
 		t.Fatal("expected at least one value")
 	}
 	return values[len(values)-1]
+}
+
+func installFakeRipgrep(t *testing.T, files []string) {
+	t.Helper()
+
+	binDir := t.TempDir()
+	rgPath := filepath.Join(binDir, "rg")
+
+	var script strings.Builder
+	script.WriteString("#!/bin/sh\n")
+	script.WriteString("printf '")
+	for _, file := range files {
+		script.WriteString(file)
+		script.WriteString("\\0")
+	}
+	script.WriteString("'\n")
+
+	if err := os.WriteFile(rgPath, []byte(script.String()), 0755); err != nil {
+		t.Fatalf("write fake rg: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+}
+
+func mustWriteFile(t *testing.T, path, content string) {
+	t.Helper()
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func mustReadFile(t *testing.T, path string) string {
+	t.Helper()
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(content)
 }

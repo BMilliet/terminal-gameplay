@@ -12,6 +12,7 @@ import (
 	"terminal-gameplay/internal/notes"
 	"terminal-gameplay/internal/scripts"
 	"terminal-gameplay/internal/settings"
+	"terminal-gameplay/internal/tools"
 	"terminal-gameplay/internal/utils"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -45,6 +46,7 @@ const (
 	GoToPage
 	ScriptsPage
 	NotesPage
+	ToolsPage
 	SettingsPage
 	FeaturesPage
 )
@@ -57,6 +59,7 @@ type MultiPageViewModel struct {
 	goToList      []utils.ListItem
 	scriptList    []utils.ListItem
 	notesList     []utils.ListItem
+	toolsList     []utils.ListItem
 	settingsList  []utils.ListItem
 	featuresList  []utils.ListItem
 	availPages    []PageType
@@ -76,8 +79,9 @@ type MultiPageViewModel struct {
 	filteredList []utils.ListItem
 }
 
-func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesDTO) MultiPageViewModel {
+func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesDTO, initialPage ...string) MultiPageViewModel {
 	frequentList := frequent.BuildList(config.GoTo, features.FrequentGoTo, features.Frequencies)
+	toolsList := tools.BuildList()
 	settingsList := settings.BuildSettingsList()
 	featuresList := settings.BuildFeaturesList(features)
 
@@ -97,12 +101,25 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 		availPages = append(availPages, NotesPage)
 	}
 
-	// Always add settings page at the end
+	// Always add tools before settings.
+	availPages = append(availPages, ToolsPage)
+
+	// Always add settings page at the end.
 	availPages = append(availPages, SettingsPage)
 
 	currentPage := GoToPage
+	pageIndex := 0
 	if len(availPages) > 0 {
 		currentPage = availPages[0]
+	}
+	if len(initialPage) > 0 {
+		for i, page := range availPages {
+			if pageNameByType(page) == initialPage[0] {
+				currentPage = page
+				pageIndex = i
+				break
+			}
+		}
 	}
 
 	m := MultiPageViewModel{
@@ -113,13 +130,14 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 		goToList:      gototab.BuildList(config.GoTo),
 		scriptList:    scripts.BuildList(config.Scripts),
 		notesList:     notes.BuildList(config.Notes),
+		toolsList:     toolsList,
 		settingsList:  settingsList,
 		featuresList:  featuresList,
 		availPages:    availPages,
-		pageIndex:     0,
+		pageIndex:     pageIndex,
 		cursor:        0,
 		viewportStart: 0,
-		maxVisible:    8, // Show max 8 items at a time
+		maxVisible:    10,
 		quitting:      false,
 		styles:        DefaultStyles(),
 		terminalWidth: defaultContentWidth + screenGutterWidth,
@@ -688,6 +706,8 @@ func (m MultiPageViewModel) renderFooter() string {
 		helpText = "a add  /  dd delete  /  / search  /  up down navigate  /  enter open  /  q esc quit"
 	} else if m.currentPage == ScriptsPage {
 		helpText = "a add  /  e edit  /  dd delete  /  enter run  /  / search  /  left right switch  /  q esc quit"
+	} else if m.currentPage == ToolsPage {
+		helpText = "/ search  /  up down navigate  /  enter select  /  left right switch  /  q esc quit"
 	} else if m.currentPage == FeaturesPage {
 		helpText = "/ search  /  up down navigate  /  enter toggle  /  esc back  /  q quit"
 	} else {
@@ -808,6 +828,8 @@ func (m MultiPageViewModel) getCurrentList() []utils.ListItem {
 		return m.scriptList
 	case NotesPage:
 		return m.notesList
+	case ToolsPage:
+		return m.toolsList
 	case SettingsPage:
 		return m.settingsList
 	case FeaturesPage:
@@ -855,6 +877,8 @@ func (m MultiPageViewModel) getPageName() string {
 		return scripts.PageName
 	case NotesPage:
 		return notes.PageName
+	case ToolsPage:
+		return tools.PageName
 	case SettingsPage:
 		return settings.PageName
 	case FeaturesPage:
@@ -865,6 +889,10 @@ func (m MultiPageViewModel) getPageName() string {
 }
 
 func (m MultiPageViewModel) getPageNameByType(page PageType) string {
+	return pageNameByType(page)
+}
+
+func pageNameByType(page PageType) string {
 	switch page {
 	case FrequentPage:
 		return frequent.PageName
@@ -874,6 +902,8 @@ func (m MultiPageViewModel) getPageNameByType(page PageType) string {
 		return scripts.PageName
 	case NotesPage:
 		return notes.PageName
+	case ToolsPage:
+		return tools.PageName
 	case SettingsPage:
 		return settings.PageName
 	case FeaturesPage:
@@ -889,8 +919,8 @@ func tickHeader() tea.Cmd {
 	})
 }
 
-func MultiPageView(config *utils.ConfigDTO, features *settings.FeaturesDTO, selected *string) {
-	m := NewMultiPageViewModel(config, features)
+func MultiPageView(config *utils.ConfigDTO, features *settings.FeaturesDTO, selected *string, initialPage ...string) {
+	m := NewMultiPageViewModel(config, features, initialPage...)
 	m.selected = selected
 
 	if _, err := tea.NewProgram(m).Run(); err != nil {

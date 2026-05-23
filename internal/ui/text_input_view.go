@@ -66,6 +66,7 @@ func (m textInputViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyCtrlC, tea.KeyEsc:
 			*m.endValue = utils.ExitSignal
+			m.quitting = true
 			return m, tea.Quit
 		}
 

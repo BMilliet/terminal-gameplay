@@ -10,7 +10,8 @@ type ViewBuilderInterface interface {
 	NewConfirmView(title string) bool
 	NewSectionSelectView(title string, sections []utils.ListItem) utils.ListItem
 	NewTextFieldView(title, placeHolder string) string
-	NewMultiPageView(config *utils.ConfigDTO, features *settings.FeaturesDTO) string
+	NewSearchReplaceFilesView(title string, files []utils.ListItem, height int) utils.ListItem
+	NewMultiPageView(config *utils.ConfigDTO, features *settings.FeaturesDTO, initialPage ...string) string
 }
 
 type ViewBuilder struct{}
@@ -43,8 +44,14 @@ func (b *ViewBuilder) NewTextFieldView(title, placeHolder string) string {
 	return endValue
 }
 
-func (b *ViewBuilder) NewMultiPageView(config *utils.ConfigDTO, features *settings.FeaturesDTO) string {
+func (b *ViewBuilder) NewSearchReplaceFilesView(title string, files []utils.ListItem, height int) utils.ListItem {
+	endValue := utils.ListItem{}
+	SearchReplaceFilesView(title, files, height, &endValue)
+	return endValue
+}
+
+func (b *ViewBuilder) NewMultiPageView(config *utils.ConfigDTO, features *settings.FeaturesDTO, initialPage ...string) string {
 	selected := ""
-	MultiPageView(config, features, &selected)
+	MultiPageView(config, features, &selected, initialPage...)
 	return selected
 }
