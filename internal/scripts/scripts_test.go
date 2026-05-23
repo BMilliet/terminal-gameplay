@@ -60,10 +60,10 @@ func TestDefaultLuaContentIncludesNameDescriptionAndPrint(t *testing.T) {
 func TestSyncFilesCreatesScriptsThroughAbstractionAndSkipsDividers(t *testing.T) {
 	fm := newFakeScriptsFileManager()
 	items := utils.OrderedMap{
-		Keys: []string{"deploy", "div"},
+		Keys: []string{"deploy prod", "div"},
 		Values: map[string]string{
-			"deploy": "Deploy prod",
-			"div":    "ignored divider",
+			"deploy prod": "Deploy prod",
+			"div":         "ignored divider",
 		},
 	}
 
@@ -74,19 +74,25 @@ func TestSyncFilesCreatesScriptsThroughAbstractionAndSkipsDividers(t *testing.T)
 	if fm.ensureDirCalls != 1 {
 		t.Fatalf("EnsureScriptsDir calls = %d, want 1", fm.ensureDirCalls)
 	}
-	if _, ok := fm.files["scripts/deploy.lua"]; !ok {
-		t.Fatalf("expected scripts/deploy.lua to be created")
+	if _, ok := fm.files["scripts/deploy_prod.lua"]; !ok {
+		t.Fatalf("expected scripts/deploy_prod.lua to be created")
 	}
 	if _, ok := fm.files["scripts/div.lua"]; ok {
 		t.Fatalf("divider should not create a script file")
 	}
 
-	firstContent := fm.files["scripts/deploy.lua"]
+	firstContent := fm.files["scripts/deploy_prod.lua"]
 	if err := SyncFiles(fm, &items); err != nil {
 		t.Fatalf("SyncFiles() second call error = %v", err)
 	}
-	if got := fm.files["scripts/deploy.lua"]; got != firstContent {
+	if got := fm.files["scripts/deploy_prod.lua"]; got != firstContent {
 		t.Fatalf("existing script content changed to %q, want %q", got, firstContent)
+	}
+}
+
+func TestFileNameConvertsWhitespaceToUnderscores(t *testing.T) {
+	if got := FileName("get current branch"); got != "get_current_branch.lua" {
+		t.Fatalf("FileName() = %q, want get_current_branch.lua", got)
 	}
 }
 

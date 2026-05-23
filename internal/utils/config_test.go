@@ -61,4 +61,14 @@ func TestFileNameWithExtensionSanitizesPathLikeInput(t *testing.T) {
 	if got != "report.md" {
 		t.Fatalf("FileNameWithExtension() = %q, want report.md", got)
 	}
+
+	got = FileNameWithExtension("test file name", ".md")
+	if got != "test_file_name.md" {
+		t.Fatalf("FileNameWithExtension() = %q, want test_file_name.md", got)
+	}
+
+	got = FileNameWithExtension("get  current\tbranch.lua", ".lua")
+	if got != "get_current_branch.lua" {
+		t.Fatalf("FileNameWithExtension() = %q, want get_current_branch.lua", got)
+	}
 }

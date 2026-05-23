@@ -87,10 +87,10 @@ func TestBuildListUsesNotePreviewAndPreservesDividers(t *testing.T) {
 func TestSyncContentUsesFileManagerAbstraction(t *testing.T) {
 	fm := newFakeNotesFileManager()
 	items := utils.OrderedMap{
-		Keys: []string{"daily", "div"},
+		Keys: []string{"daily note", "div"},
 		Values: map[string]string{
-			"daily": "seed content",
-			"div":   "ignored divider",
+			"daily note": "seed content",
+			"div":        "ignored divider",
 		},
 	}
 
@@ -101,19 +101,25 @@ func TestSyncContentUsesFileManagerAbstraction(t *testing.T) {
 	if fm.ensureDirCalls != 1 {
 		t.Fatalf("EnsureNotesDir calls = %d, want 1", fm.ensureDirCalls)
 	}
-	if got := fm.files["notes/daily.md"]; got != "seed content" {
+	if got := fm.files["notes/daily_note.md"]; got != "seed content" {
 		t.Fatalf("created note content = %q, want %q", got, "seed content")
 	}
 	if got := fm.files["notes/div.md"]; got != "" {
 		t.Fatalf("divider file content = %q, want no file", got)
 	}
 
-	fm.files["notes/daily.md"] = "edited content"
+	fm.files["notes/daily_note.md"] = "edited content"
 	if err := SyncContent(fm, &items); err != nil {
 		t.Fatalf("SyncContent() second call error = %v", err)
 	}
-	if got := items.Values["daily"]; got != "edited content" {
+	if got := items.Values["daily note"]; got != "edited content" {
 		t.Fatalf("synced config content = %q, want edited content", got)
+	}
+}
+
+func TestFileNameConvertsWhitespaceToUnderscores(t *testing.T) {
+	if got := FileName("test file name"); got != "test_file_name.md" {
+		t.Fatalf("FileName() = %q, want test_file_name.md", got)
 	}
 }
 

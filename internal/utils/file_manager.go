@@ -273,9 +273,16 @@ func FileNameWithExtension(name, extension string) string {
 		fileName = "untitled"
 	}
 
-	if filepath.Ext(fileName) == "" {
-		fileName += extension
+	ext := filepath.Ext(fileName)
+	base := strings.TrimSuffix(fileName, ext)
+	base = strings.Join(strings.Fields(base), "_")
+	if base == "" || base == "." {
+		base = "untitled"
 	}
 
-	return fileName
+	if ext == "" {
+		ext = extension
+	}
+
+	return base + ext
 }

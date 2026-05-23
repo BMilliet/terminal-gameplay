@@ -361,20 +361,20 @@ func TestStartAddScriptCreatesFileAndOpensEditorThroughMocks(t *testing.T) {
 	runtime := newFakeRuntime()
 	views := &fakeViewBuilder{
 		multiPageResults: []string{scripts.PageName + "|" + scripts.AddAction + "|", "invalid"},
-		textResults:      []string{"deploy.lua", "Ship prod"},
+		textResults:      []string{"get current branch", "Print current branch"},
 	}
 
 	NewRunner(fm, runtime, views).Start()
 
-	if got := runtime.openedInNvim; !reflect.DeepEqual(got, []string{"scripts/deploy.lua"}) {
+	if got := runtime.openedInNvim; !reflect.DeepEqual(got, []string{"scripts/get_current_branch.lua"}) {
 		t.Fatalf("OpenInNvim calls = %#v, want script path", got)
 	}
 	if len(runtime.ranLua) != 0 {
 		t.Fatalf("RunLuaScript calls = %#v, want none", runtime.ranLua)
 	}
 
-	scriptContent := fm.files["scripts/deploy.lua"]
-	for _, want := range []string{"-- deploy.lua", "-- Ship prod"} {
+	scriptContent := fm.files["scripts/get_current_branch.lua"]
+	for _, want := range []string{"-- get current branch", "-- Print current branch"} {
 		if !strings.Contains(scriptContent, want) {
 			t.Fatalf("script content = %q, want to contain %q", scriptContent, want)
 		}
@@ -382,8 +382,37 @@ func TestStartAddScriptCreatesFileAndOpensEditorThroughMocks(t *testing.T) {
 
 	var savedConfig utils.ConfigDTO
 	mustUnmarshalJSON(t, last(t, fm.configWrites), &savedConfig)
-	if got, ok := savedConfig.Scripts.Get("deploy.lua"); !ok || got != "Ship prod" {
-		t.Fatalf("saved script description = %q, %v; want Ship prod, true", got, ok)
+	if got, ok := savedConfig.Scripts.Get("get current branch"); !ok || got != "Print current branch" {
+		t.Fatalf("saved script description = %q, %v; want Print current branch, true", got, ok)
+	}
+}
+
+func TestStartAddNoteCreatesUnderscoreFileFromName(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Notes: utils.OrderedMap{Values: make(map[string]string)},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{
+		FrequentGoTo: false,
+		Scripts:      false,
+		Notes:        true,
+		Frequencies:  make(map[string]int),
+	})
+
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{"notes|__ADD_NOTE__|", "invalid"},
+		textResults:      []string{"test file name"},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	if got := runtime.openedInNvim; !reflect.DeepEqual(got, []string{"notes/test_file_name.md"}) {
+		t.Fatalf("OpenInNvim calls = %#v, want note path", got)
+	}
+
+	if _, ok := fm.files["notes/test_file_name.md"]; !ok {
+		t.Fatalf("expected notes/test_file_name.md to be created")
 	}
 }
 

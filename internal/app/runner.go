@@ -495,7 +495,7 @@ func (r *Runner) selectGoToSection(config *utils.ConfigDTO) (string, bool, error
 }
 
 func (r *Runner) createNote(config *utils.ConfigDTO) error {
-	noteName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New note filename", "daily-note.md"))
+	noteName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New note name", "test file name"))
 	if noteName == utils.ExitSignal || noteName == "" {
 		return nil
 	}
@@ -528,7 +528,7 @@ func (r *Runner) createNote(config *utils.ConfigDTO) error {
 }
 
 func (r *Runner) createScript(config *utils.ConfigDTO) error {
-	scriptName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New script filename", "deploy.lua"))
+	scriptName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New script name", "get current branch"))
 	if scriptName == utils.ExitSignal || scriptName == "" {
 		return nil
 	}
