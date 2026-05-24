@@ -107,12 +107,15 @@ func TestSyncContentUsesFileManagerAbstraction(t *testing.T) {
 	if got := fm.files["notes/div.md"]; got != "" {
 		t.Fatalf("divider file content = %q, want no file", got)
 	}
+	if got := items.Keys; !reflect.DeepEqual(got, []string{"daily_note.md", "div"}) {
+		t.Fatalf("synced keys = %#v, want literal file names", got)
+	}
 
 	fm.files["notes/daily_note.md"] = "edited content"
 	if err := SyncContent(fm, &items); err != nil {
 		t.Fatalf("SyncContent() second call error = %v", err)
 	}
-	if got := items.Values["daily note"]; got != "edited content" {
+	if got := items.Values["daily_note.md"]; got != "edited content" {
 		t.Fatalf("synced config content = %q, want edited content", got)
 	}
 }

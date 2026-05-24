@@ -495,12 +495,13 @@ func (r *Runner) selectGoToSection(config *utils.ConfigDTO) (string, bool, error
 }
 
 func (r *Runner) createNote(config *utils.ConfigDTO) error {
-	noteName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New note name", "test file name"))
+	noteName := strings.TrimSpace(r.viewBuilder.NewTextFieldView("New note name", "test_file_name.md"))
 	if noteName == utils.ExitSignal || noteName == "" {
 		return nil
 	}
 
-	notePath, err := notes.EnsureFile(r.fileManager, noteName, "")
+	noteFileName := notes.FileName(noteName)
+	notePath, err := notes.EnsureFile(r.fileManager, noteFileName, "")
 	if err != nil {
 		return err
 	}
@@ -514,7 +515,7 @@ func (r *Runner) createNote(config *utils.ConfigDTO) error {
 		return err
 	}
 
-	config.Notes.Set(noteName, content)
+	config.Notes.Set(noteFileName, content)
 	jsonStr, err := utils.ToJSON(config)
 	if err != nil {
 		return err

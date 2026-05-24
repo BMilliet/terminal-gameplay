@@ -414,6 +414,15 @@ func TestStartAddNoteCreatesUnderscoreFileFromName(t *testing.T) {
 	if _, ok := fm.files["notes/test_file_name.md"]; !ok {
 		t.Fatalf("expected notes/test_file_name.md to be created")
 	}
+
+	var savedConfig utils.ConfigDTO
+	mustUnmarshalJSON(t, last(t, fm.configWrites), &savedConfig)
+	if _, ok := savedConfig.Notes.Get("test_file_name.md"); !ok {
+		t.Fatalf("saved note key missing literal file name: %#v", savedConfig.Notes.Keys)
+	}
+	if _, ok := savedConfig.Notes.Get("test file name"); ok {
+		t.Fatalf("saved note key should not use display name: %#v", savedConfig.Notes.Keys)
+	}
 }
 
 func TestStartScriptRunCancelledDoesNotRunLua(t *testing.T) {

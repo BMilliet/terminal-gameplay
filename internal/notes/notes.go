@@ -78,17 +78,23 @@ func SyncContent(fm FileManager, items *utils.OrderedMap) error {
 		return nil
 	}
 
-	for _, key := range items.Keys {
-		if utils.IsDividerKey(key) {
-			continue
-		}
+	normalizedKeys := make([]string, 0, len(items.Keys))
+	normalizedValues := make(map[string]string, len(items.Values))
 
-		content, ok := items.Values[key]
+	for _, key := range items.Keys {
+		value, ok := items.Values[key]
 		if !ok {
 			continue
 		}
 
-		notePath, err := EnsureFile(fm, key, content)
+		if utils.IsDividerKey(key) {
+			normalizedKeys = append(normalizedKeys, key)
+			normalizedValues[key] = value
+			continue
+		}
+
+		fileName := FileName(key)
+		notePath, err := EnsureFile(fm, fileName, value)
 		if err != nil {
 			return fmt.Errorf("SyncContent -> %s %v", key, err)
 		}
@@ -97,8 +103,14 @@ func SyncContent(fm FileManager, items *utils.OrderedMap) error {
 		if err != nil {
 			return fmt.Errorf("SyncContent -> read %s %v", notePath, err)
 		}
-		items.Values[key] = fileContent
+		if _, exists := normalizedValues[fileName]; !exists {
+			normalizedKeys = append(normalizedKeys, fileName)
+		}
+		normalizedValues[fileName] = fileContent
 	}
+
+	items.Keys = normalizedKeys
+	items.Values = normalizedValues
 
 	return nil
 }
