@@ -2,6 +2,7 @@ package shellstate
 
 import (
 	"fmt"
+	"strings"
 
 	aliastab "terminal-gameplay/internal/alias"
 	envtab "terminal-gameplay/internal/env"
@@ -30,7 +31,15 @@ func LoadCommands(fileManager FileManager, shell string) ([]string, error) {
 		return nil, err
 	}
 
-	return Commands(config, features, shell)
+	commands, err := Commands(config, features, shell)
+	if err != nil {
+		return nil, err
+	}
+
+	if notification := injectionNotification(config, features); notification != "" {
+		commands = append(commands, notification)
+	}
+	return commands, nil
 }
 
 func Commands(config *utils.ConfigDTO, features *settings.FeaturesDTO, shell string) ([]string, error) {
@@ -96,4 +105,28 @@ func loadConfig(fileManager FileManager) (*utils.ConfigDTO, error) {
 		return nil, fmt.Errorf("parse config.json: %w", err)
 	}
 	return config, nil
+}
+
+func injectionNotification(config *utils.ConfigDTO, features *settings.FeaturesDTO) string {
+	var injected []string
+	if features.Env && hasActiveItems(config.Env) {
+		injected = append(injected, "env")
+	}
+	if features.Alias && hasActiveItems(config.Aliases) {
+		injected = append(injected, "aliases")
+	}
+	if len(injected) == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf("builtin printf '%%s\\n' '[tg] injected %s';", strings.Join(injected, " and "))
+}
+
+func hasActiveItems(items utils.OrderedEnvMap) bool {
+	for _, key := range items.Keys {
+		if value, ok := items.Values[key]; ok && value.Active {
+			return true
+		}
+	}
+	return false
 }
