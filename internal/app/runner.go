@@ -3,9 +3,12 @@ package app
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	envtab "terminal-gameplay/internal/env"
 	"terminal-gameplay/internal/frequent"
 	gototab "terminal-gameplay/internal/goto"
 	"terminal-gameplay/internal/notes"
@@ -17,16 +20,18 @@ import (
 )
 
 type Runner struct {
-	fileManager utils.FileManagerInterface
-	runtime     utils.UtilsInterface
-	viewBuilder ui.ViewBuilderInterface
+	fileManager      utils.FileManagerInterface
+	runtime          utils.UtilsInterface
+	viewBuilder      ui.ViewBuilderInterface
+	pendingEnvUnsets map[string]struct{}
 }
 
 func NewRunner(fm utils.FileManagerInterface, runtime utils.UtilsInterface, b ui.ViewBuilderInterface) *Runner {
 	return &Runner{
-		fileManager: fm,
-		runtime:     runtime,
-		viewBuilder: b,
+		fileManager:      fm,
+		runtime:          runtime,
+		viewBuilder:      b,
+		pendingEnvUnsets: make(map[string]struct{}),
 	}
 }
 
@@ -36,6 +41,9 @@ func (r *Runner) Start() {
 	// Initialize application directory and config file
 	if err := r.fileManager.BasicSetup(); err != nil {
 		r.runtime.HandleError(err, "Failed to initialize application")
+	}
+	if err := r.fileManager.DeleteFileIfExists(r.fileManager.CommandExecPath()); err != nil {
+		r.runtime.HandleError(err, "Failed to clear pending shell command")
 	}
 
 	// Load or create default features
@@ -89,6 +97,10 @@ func (r *Runner) Start() {
 		if config.MigratedLegacyCommands() {
 			migratedLegacyCommands = true
 		}
+	}
+
+	if err := r.syncEnvironment(config); err != nil {
+		r.runtime.HandleError(err, "Failed to apply environment")
 	}
 
 	if features.Scripts {
@@ -224,13 +236,32 @@ func (r *Runner) Start() {
 			expandedPath := r.runtime.ExpandPath(value)
 
 			// Write cd command to file
-			cmdFile := r.fileManager.CommandExecPath()
 			command := fmt.Sprintf("cd %s", expandedPath)
 
-			if err := r.fileManager.WriteFileContent(cmdFile, command); err != nil {
+			if err := r.writeShellCommand(config, command); err != nil {
 				r.runtime.HandleError(err, "Failed to write command file")
 			}
 			return
+
+		case envtab.PageName:
+			nextPage = envtab.PageName
+			switch label {
+			case envtab.AddAction:
+				if err := r.createEnv(config); err != nil {
+					r.runtime.HandleError(err, "Failed to create env")
+				}
+			case envtab.DeleteAction:
+				if r.confirmDelete("env", value) {
+					if err := r.deleteEnv(config, value); err != nil {
+						r.runtime.HandleError(err, "Failed to delete env")
+					}
+				}
+			default:
+				if err := r.toggleEnv(config, label); err != nil {
+					r.runtime.HandleError(err, "Failed to toggle env")
+				}
+			}
+			continue
 
 		case scripts.PageName:
 			switch label {
@@ -559,6 +590,69 @@ func (r *Runner) createScript(config *utils.ConfigDTO) error {
 	return scripts.SyncFiles(r.fileManager, &config.Scripts)
 }
 
+func (r *Runner) createEnv(config *utils.ConfigDTO) error {
+	key := r.viewBuilder.NewTextFieldView("Env key", "FOO")
+	if key == utils.ExitSignal {
+		return nil
+	}
+	key = strings.TrimSpace(key)
+	if err := envtab.ValidateKey(key); err != nil {
+		return err
+	}
+
+	value := r.viewBuilder.NewTextFieldView("Env value", "123")
+	if value == utils.ExitSignal {
+		return nil
+	}
+
+	if _, exists := config.Env.Get(key); exists {
+		if !r.viewBuilder.NewConfirmView(fmt.Sprintf("Replace env %q?", key)) {
+			return nil
+		}
+	}
+
+	config.Env.Set(key, value, true)
+	delete(r.pendingEnvUnsets, key)
+	if err := r.writeConfig(config); err != nil {
+		return err
+	}
+	return r.syncEnvironment(config)
+}
+
+func (r *Runner) toggleEnv(config *utils.ConfigDTO, key string) error {
+	value, ok := config.Env.Get(key)
+	if !ok {
+		return nil
+	}
+
+	config.Env.Set(key, value.Value, !value.Active)
+	delete(r.pendingEnvUnsets, key)
+	if err := r.writeConfig(config); err != nil {
+		return err
+	}
+	return r.syncEnvironment(config)
+}
+
+func (r *Runner) deleteEnv(config *utils.ConfigDTO, key string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil
+	}
+	if _, ok := config.Env.Get(key); !ok {
+		return nil
+	}
+
+	config.Env.Delete(key)
+	r.pendingEnvUnsets[key] = struct{}{}
+	if err := r.runtime.UnsetEnv(key); err != nil {
+		return err
+	}
+	if err := r.writeConfig(config); err != nil {
+		return err
+	}
+	return r.writeShellCommand(config, "")
+}
+
 func (r *Runner) editScript(scriptName string) error {
 	scriptName = strings.TrimSpace(scriptName)
 	if scriptName == "" {
@@ -651,6 +745,46 @@ func (r *Runner) writeFeatures(features *settings.FeaturesDTO) error {
 	}
 
 	return r.fileManager.WriteFeaturesContent(jsonStr)
+}
+
+func (r *Runner) syncEnvironment(config *utils.ConfigDTO) error {
+	if err := envtab.Apply(config.Env, r.runtime); err != nil {
+		return err
+	}
+	return r.writeShellCommand(config, "")
+}
+
+func (r *Runner) writeShellCommand(config *utils.ConfigDTO, command string) error {
+	shell := os.Getenv(envtab.ShellIntegrationEnv)
+	commands, err := envtab.ShellCommands(config.Env, shell)
+	if err != nil {
+		return err
+	}
+
+	pendingKeys := make([]string, 0, len(r.pendingEnvUnsets))
+	for key := range r.pendingEnvUnsets {
+		if _, exists := config.Env.Get(key); !exists {
+			pendingKeys = append(pendingKeys, key)
+		}
+	}
+	sort.Strings(pendingKeys)
+	for _, key := range pendingKeys {
+		unsetCommand, err := envtab.UnsetCommand(key, shell)
+		if err != nil {
+			return err
+		}
+		commands = append(commands, unsetCommand)
+	}
+
+	if command != "" {
+		commands = append(commands, command)
+	}
+
+	cmdFile := r.fileManager.CommandExecPath()
+	if len(commands) == 0 {
+		return r.fileManager.DeleteFileIfExists(cmdFile)
+	}
+	return r.fileManager.WriteFileContent(cmdFile, strings.Join(commands, "\n"))
 }
 
 func (r *Runner) migrateLegacyFeatures(features *settings.FeaturesDTO) {

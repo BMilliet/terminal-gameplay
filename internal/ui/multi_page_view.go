@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	envtab "terminal-gameplay/internal/env"
 	"terminal-gameplay/internal/frequent"
 	gototab "terminal-gameplay/internal/goto"
 	"terminal-gameplay/internal/notes"
@@ -46,6 +47,7 @@ const (
 	GoToPage
 	ScriptsPage
 	NotesPage
+	EnvPage
 	ToolsPage
 	SettingsPage
 	FeaturesPage
@@ -59,6 +61,7 @@ type MultiPageViewModel struct {
 	goToList      []utils.ListItem
 	scriptList    []utils.ListItem
 	notesList     []utils.ListItem
+	envList       []utils.ListItem
 	toolsList     []utils.ListItem
 	settingsList  []utils.ListItem
 	featuresList  []utils.ListItem
@@ -100,6 +103,7 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 	if features.Notes {
 		availPages = append(availPages, NotesPage)
 	}
+	availPages = append(availPages, EnvPage)
 
 	// Always add tools before settings.
 	availPages = append(availPages, ToolsPage)
@@ -130,6 +134,7 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 		goToList:      gototab.BuildList(config.GoTo),
 		scriptList:    scripts.BuildList(config.Scripts),
 		notesList:     notes.BuildList(config.Notes),
+		envList:       envtab.BuildList(config.Env),
 		toolsList:     toolsList,
 		settingsList:  settingsList,
 		featuresList:  featuresList,
@@ -404,6 +409,12 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 
+			if !m.searchMode && m.currentPage == EnvPage && msg.String() == "a" {
+				*m.selected = fmt.Sprintf("%s|%s|", m.getPageName(), envtab.AddAction)
+				m.quitting = true
+				return m, tea.Quit
+			}
+
 			if !m.searchMode && m.currentPage == ScriptsPage && msg.String() == "e" {
 				items := m.getActiveList()
 				if len(items) == 0 || m.cursor >= len(items) || items[m.cursor].IsDiv {
@@ -594,6 +605,8 @@ func (m MultiPageViewModel) renderEmptyState() string {
 		message = "no notes yet. press a to add one"
 	} else if m.currentPage == ScriptsPage {
 		message = "no scripts yet. press a to add one"
+	} else if m.currentPage == EnvPage {
+		message = "no env vars yet. press a to add one"
 	}
 
 	return lipgloss.NewStyle().
@@ -615,7 +628,7 @@ func (m MultiPageViewModel) renderDivider(item utils.ListItem) string {
 
 func (m MultiPageViewModel) renderListItem(item utils.ListItem, index int) string {
 	selected := m.cursor == index
-	settingsLike := m.currentPage == SettingsPage || m.currentPage == FeaturesPage
+	settingsLike := m.currentPage == SettingsPage || m.currentPage == FeaturesPage || m.currentPage == EnvPage
 	width := m.contentWidth()
 	titleWidth := m.titleColumnWidth()
 	valueWidth := width - titleWidth - rowChromeWidth
@@ -662,14 +675,15 @@ func (m MultiPageViewModel) renderListItem(item utils.ListItem, index int) strin
 
 	value := valueText
 	lowerValue := strings.ToLower(item.D)
-	if settingsLike && strings.Contains(lowerValue, "enabled") {
-		value = lipgloss.NewStyle().
-			Foreground(m.styles.SettingsEnabledColor).
-			Bold(selected).
-			Render(valueText)
-	} else if settingsLike && strings.Contains(lowerValue, "disabled") {
+	lowerStatus := strings.ToLower(item.Status)
+	if settingsLike && (lowerStatus == envtab.InactiveState || strings.Contains(lowerValue, "disabled") || strings.Contains(lowerValue, "inactive")) {
 		value = lipgloss.NewStyle().
 			Foreground(m.styles.SettingsDisabledColor).
+			Bold(selected).
+			Render(valueText)
+	} else if settingsLike && (lowerStatus == envtab.ActiveState || strings.Contains(lowerValue, "enabled") || strings.Contains(lowerValue, "active")) {
+		value = lipgloss.NewStyle().
+			Foreground(m.styles.SettingsEnabledColor).
 			Bold(selected).
 			Render(valueText)
 	} else {
@@ -706,6 +720,8 @@ func (m MultiPageViewModel) renderFooter() string {
 		helpText = "a add  /  dd delete  /  / search  /  up down navigate  /  enter open  /  q esc quit"
 	} else if m.currentPage == ScriptsPage {
 		helpText = "a add  /  e edit  /  dd delete  /  enter run  /  / search  /  left right switch  /  q esc quit"
+	} else if m.currentPage == EnvPage {
+		helpText = "a add  /  dd delete  /  enter toggle  /  / search  /  left right switch  /  q esc quit"
 	} else if m.currentPage == ToolsPage {
 		helpText = "/ search  /  up down navigate  /  enter select  /  left right switch  /  q esc quit"
 	} else if m.currentPage == FeaturesPage {
@@ -828,6 +844,8 @@ func (m MultiPageViewModel) getCurrentList() []utils.ListItem {
 		return m.scriptList
 	case NotesPage:
 		return m.notesList
+	case EnvPage:
+		return m.envList
 	case ToolsPage:
 		return m.toolsList
 	case SettingsPage:
@@ -840,7 +858,7 @@ func (m MultiPageViewModel) getCurrentList() []utils.ListItem {
 }
 
 func (m MultiPageViewModel) canDeleteCurrentPage() bool {
-	return m.currentPage == GoToPage || m.currentPage == NotesPage || m.currentPage == ScriptsPage
+	return m.currentPage == GoToPage || m.currentPage == NotesPage || m.currentPage == ScriptsPage || m.currentPage == EnvPage
 }
 
 func (m MultiPageViewModel) selectedActionItem() (utils.ListItem, bool) {
@@ -864,6 +882,9 @@ func (m MultiPageViewModel) deleteActionForCurrentPage() string {
 	if m.currentPage == NotesPage {
 		return notes.DeleteAction
 	}
+	if m.currentPage == EnvPage {
+		return envtab.DeleteAction
+	}
 	return scripts.DeleteAction
 }
 
@@ -877,6 +898,8 @@ func (m MultiPageViewModel) getPageName() string {
 		return scripts.PageName
 	case NotesPage:
 		return notes.PageName
+	case EnvPage:
+		return envtab.PageName
 	case ToolsPage:
 		return tools.PageName
 	case SettingsPage:
@@ -902,6 +925,8 @@ func pageNameByType(page PageType) string {
 		return scripts.PageName
 	case NotesPage:
 		return notes.PageName
+	case EnvPage:
+		return envtab.PageName
 	case ToolsPage:
 		return tools.PageName
 	case SettingsPage:

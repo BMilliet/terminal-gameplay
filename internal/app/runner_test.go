@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	envtab "terminal-gameplay/internal/env"
 	gototab "terminal-gameplay/internal/goto"
 	"terminal-gameplay/internal/scripts"
 	"terminal-gameplay/internal/settings"
@@ -139,12 +140,15 @@ type fakeRuntime struct {
 	openedInNvim    []string
 	ranLua          []string
 	changedDirs     []string
+	env             map[string]string
+	unsetEnv        []string
 }
 
 func newFakeRuntime() *fakeRuntime {
 	return &fakeRuntime{
 		expanded:   make(map[string]string),
 		contracted: make(map[string]string),
+		env:        make(map[string]string),
 	}
 }
 
@@ -196,6 +200,17 @@ func (f *fakeRuntime) RunLuaScript(filePath string) error {
 
 func (f *fakeRuntime) ChangeDirectory(path string) error {
 	f.changedDirs = append(f.changedDirs, path)
+	return nil
+}
+
+func (f *fakeRuntime) SetEnv(key, value string) error {
+	f.env[key] = value
+	return nil
+}
+
+func (f *fakeRuntime) UnsetEnv(key string) error {
+	delete(f.env, key)
+	f.unsetEnv = append(f.unsetEnv, key)
 	return nil
 }
 
@@ -300,6 +315,198 @@ func TestStartGoToWritesCommandAndFrequencyWithMocks(t *testing.T) {
 	mustUnmarshalJSON(t, last(t, fm.featuresWrites), &savedFeatures)
 	if got := savedFeatures.Frequencies["work"]; got != 1 {
 		t.Fatalf("saved frequency = %d, want 1", got)
+	}
+}
+
+func TestStartAppliesConfiguredEnvAndWritesShellCommands(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Env: utils.OrderedEnvMap{
+			Keys: []string{"FOO", "OLD"},
+			Values: map[string]utils.EnvValue{
+				"FOO": {Value: "123", Active: true},
+				"OLD": {Value: "456", Active: false},
+			},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+
+	runtime := newFakeRuntime()
+	runtime.env["OLD"] = "previous"
+	views := &fakeViewBuilder{multiPageResults: []string{"invalid"}}
+
+	NewRunner(fm, runtime, views).Start()
+
+	if got := runtime.env; !reflect.DeepEqual(got, map[string]string{"FOO": "123"}) {
+		t.Fatalf("runtime env = %#v, want only active FOO", got)
+	}
+	wantCommand := "export FOO='123';\nunset OLD;"
+	if got := fm.files[fm.CommandExecPath()]; got != wantCommand {
+		t.Fatalf("command file = %q, want %q", got, wantCommand)
+	}
+}
+
+func TestStartWritesFishCommandsWhenFishIntegrationIsSet(t *testing.T) {
+	t.Setenv(envtab.ShellIntegrationEnv, envtab.FishShell)
+
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Env: utils.OrderedEnvMap{
+			Keys: []string{"FOO", "OLD"},
+			Values: map[string]utils.EnvValue{
+				"FOO": {Value: "123", Active: true},
+				"OLD": {Value: "456", Active: false},
+			},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+	views := &fakeViewBuilder{multiPageResults: []string{"invalid"}}
+
+	NewRunner(fm, newFakeRuntime(), views).Start()
+
+	wantCommand := "set -gx FOO '123';\nset -e OLD;"
+	if got := fm.files[fm.CommandExecPath()]; got != wantCommand {
+		t.Fatalf("command file = %q, want %q", got, wantCommand)
+	}
+}
+
+func TestStartEnvEnterTogglesActiveState(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Env: utils.OrderedEnvMap{
+			Keys: []string{"FOO"},
+			Values: map[string]utils.EnvValue{
+				"FOO": {Value: "123", Active: true},
+			},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{envtab.PageName + "|FOO|active ✓", "invalid"},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	var savedConfig utils.ConfigDTO
+	mustUnmarshalJSON(t, last(t, fm.configWrites), &savedConfig)
+	if got, ok := savedConfig.Env.Get("FOO"); !ok || got.Active {
+		t.Fatalf("saved FOO = %#v, %v; want inactive", got, ok)
+	}
+	if _, ok := runtime.env["FOO"]; ok {
+		t.Fatalf("FOO should be removed from runtime env: %#v", runtime.env)
+	}
+	if got := fm.files[fm.CommandExecPath()]; got != "unset FOO;" {
+		t.Fatalf("command file = %q, want unset FOO", got)
+	}
+}
+
+func TestStartEnvAddUsesSeparateKeyAndValueInputsAndActivatesKey(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{envtab.PageName + "|" + envtab.AddAction + "|", "invalid"},
+		textResults:      []string{"FOO", "123"},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	var savedConfig utils.ConfigDTO
+	mustUnmarshalJSON(t, last(t, fm.configWrites), &savedConfig)
+	if got, ok := savedConfig.Env.Get("FOO"); !ok || got.Value != "123" || !got.Active {
+		t.Fatalf("saved FOO = %#v, %v; want active value 123", got, ok)
+	}
+	if got := runtime.env["FOO"]; got != "123" {
+		t.Fatalf("runtime FOO = %q, want 123", got)
+	}
+	if got := fm.files[fm.CommandExecPath()]; got != "export FOO='123';" {
+		t.Fatalf("command file = %q, want FOO export", got)
+	}
+}
+
+func TestStartEnvAddCancelledAtValueDoesNotChangeConfig(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{envtab.PageName + "|" + envtab.AddAction + "|", "invalid"},
+		textResults:      []string{"FOO", utils.ExitSignal},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	if len(fm.configWrites) != 0 {
+		t.Fatalf("config writes = %#v, want none after cancelling value", fm.configWrites)
+	}
+	if _, ok := runtime.env["FOO"]; ok {
+		t.Fatalf("FOO should not be added after cancelling value: %#v", runtime.env)
+	}
+}
+
+func TestStartEnvDeleteUnsetsRemovedKey(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Env: utils.OrderedEnvMap{
+			Keys: []string{"FOO"},
+			Values: map[string]utils.EnvValue{
+				"FOO": {Value: "123", Active: true},
+			},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{envtab.PageName + "|" + envtab.DeleteAction + "|FOO", "invalid"},
+		confirmResults:   []bool{true},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	var savedConfig utils.ConfigDTO
+	mustUnmarshalJSON(t, last(t, fm.configWrites), &savedConfig)
+	if _, ok := savedConfig.Env.Get("FOO"); ok {
+		t.Fatal("saved config still contains deleted FOO")
+	}
+	if _, ok := runtime.env["FOO"]; ok {
+		t.Fatalf("FOO should be removed from runtime env: %#v", runtime.env)
+	}
+	if got := fm.files[fm.CommandExecPath()]; got != "unset FOO;" {
+		t.Fatalf("command file = %q, want unset FOO", got)
+	}
+}
+
+func TestStartGoToCombinesActiveEnvWithCdCommand(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		GoTo: utils.OrderedMap{
+			Keys:   []string{"work"},
+			Values: map[string]string{"work": "~/work"},
+		},
+		Env: utils.OrderedEnvMap{
+			Keys:   []string{"FOO"},
+			Values: map[string]utils.EnvValue{"FOO": {Value: "123", Active: true}},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+
+	runtime := newFakeRuntime()
+	runtime.expanded["~/work"] = "/home/test/work"
+	views := &fakeViewBuilder{
+		multiPageResults: []string{gototab.PageName + "|work|~/work"},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	want := "export FOO='123';\ncd /home/test/work"
+	if got := fm.files[fm.CommandExecPath()]; got != want {
+		t.Fatalf("command file = %q, want %q", got, want)
 	}
 }
 

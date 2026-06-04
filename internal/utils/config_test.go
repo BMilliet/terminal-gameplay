@@ -72,3 +72,29 @@ func TestFileNameWithExtensionSanitizesPathLikeInput(t *testing.T) {
 		t.Fatalf("FileNameWithExtension() = %q, want get_current_branch.lua", got)
 	}
 }
+
+func TestOrderedEnvMapSupportsShorthandAndPreservesStateAndOrder(t *testing.T) {
+	var items OrderedEnvMap
+	if err := json.Unmarshal([]byte(`{"FOO":"123","BAR":{"value":"456","active":false}}`), &items); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+
+	if want := []string{"FOO", "BAR"}; !reflect.DeepEqual(items.Keys, want) {
+		t.Fatalf("keys = %#v, want %#v", items.Keys, want)
+	}
+	if got, ok := items.Get("FOO"); !ok || got.Value != "123" || !got.Active {
+		t.Fatalf("FOO = %#v, %v; want active shorthand value", got, ok)
+	}
+	if got, ok := items.Get("BAR"); !ok || got.Value != "456" || got.Active {
+		t.Fatalf("BAR = %#v, %v; want inactive structured value", got, ok)
+	}
+
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	wantJSON := `{"FOO":{"value":"123","active":true},"BAR":{"value":"456","active":false}}`
+	if string(encoded) != wantJSON {
+		t.Fatalf("json = %s, want %s", encoded, wantJSON)
+	}
+}

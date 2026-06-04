@@ -7,6 +7,7 @@ A powerful terminal productivity tool that provides quick access to directories 
 - 🚀 **GoTo**: Quickly navigate to your frequently used directories
 - ⚡ **Scripts**: Create, edit, and execute Lua scripts with confirmation
 - 📝 **Notes**: Keep quick notes and snippets at your fingertips
+- 🔐 **Env**: Activate or deactivate environment variables in your current shell
 
 ## Installation
 
@@ -48,7 +49,7 @@ Or copy the function directly:
 
 ```bash
 tg() {
-    $HOME/.terminal-gameplay/terminal-gameplay
+    TG_SHELL_INTEGRATION=posix $HOME/.terminal-gameplay/terminal-gameplay
     local cmd_file="$HOME/.terminal-gameplay/cmd-exec"
     if [ -f "$cmd_file" ]; then
         local cmd=$(cat "$cmd_file")
@@ -70,6 +71,7 @@ Or copy the function directly:
 
 ```fish
 function tg
+    set -lx TG_SHELL_INTEGRATION fish
     $HOME/.terminal-gameplay/terminal-gameplay
     set -l cmd_file $HOME/.terminal-gameplay/cmd-exec
     if test -f $cmd_file
@@ -79,6 +81,9 @@ function tg
     end
 end
 ```
+
+After updating the Fish integration, reload it in existing sessions with
+`source /path/to/terminal-gameplay/tg.fish`.
 
 ### Reload Your Shell
 
@@ -107,6 +112,11 @@ This will launch the interactive TUI where you can:
 3. **Search** by pressing `/` to activate fuzzy-find mode
 4. **Select** an item by pressing Enter
 
+In the `env` tab, press `a`, enter the key (such as `FOO`), then enter its value
+(such as `123`). Press Enter on an env key to toggle its `active`/`inactive`
+state. Active keys are exported to the current shell and inherited by scripts;
+inactive keys are unset.
+
 ### Fuzzy Find Search
 
 Press `/` to activate the fuzzy-find search mode. This feature allows you to quickly filter items by typing:
@@ -133,9 +143,18 @@ On first run, `tg` creates a configuration file at `~/.terminal-gameplay/config.
   },
   "notes": {
     "reminder": "Don't forget to commit your changes!"
+  },
+  "env": {
+    "FOO": {
+      "value": "123",
+      "active": true
+    }
   }
 }
 ```
+
+For manual configuration, the shorthand `"FOO": "123"` is also accepted and is
+treated as active.
 
 Script descriptions live in `config.json`; the Lua files themselves are stored in `~/.terminal-gameplay/scripts`.
 

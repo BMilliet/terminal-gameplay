@@ -71,5 +71,8 @@ func GetDefaultConfig() *ConfigDTO {
 			Keys:   []string{"example"},
 			Values: map[string]string{"example": "Add your notes in config.json"},
 		},
+		Env: OrderedEnvMap{
+			Values: make(map[string]EnvValue),
+		},
 	}
 }

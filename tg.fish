@@ -4,6 +4,8 @@
 #   source /path/to/tg.fish
 
 function tg
+    set -lx TG_SHELL_INTEGRATION fish
+
     # Run the binary in the same directory
     $HOME/.terminal-gameplay/terminal-gameplay
     

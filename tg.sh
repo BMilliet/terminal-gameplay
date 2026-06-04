@@ -7,7 +7,7 @@
 
 tg() {
     # Run the binary from ~/.terminal-gameplay/tg
-    $HOME/.terminal-gameplay/terminal-gameplay
+    TG_SHELL_INTEGRATION=posix $HOME/.terminal-gameplay/terminal-gameplay
     
     # Check if command file exists
     local cmd_file="$HOME/.terminal-gameplay/cmd-exec"

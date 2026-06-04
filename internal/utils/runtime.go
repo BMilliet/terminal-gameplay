@@ -21,6 +21,8 @@ type UtilsInterface interface {
 	OpenInNvim(filePath string) error
 	RunLuaScript(filePath string) error
 	ChangeDirectory(path string) error
+	SetEnv(key, value string) error
+	UnsetEnv(key string) error
 }
 
 type Utils struct{}
@@ -150,6 +152,14 @@ func (u *Utils) ChangeDirectory(path string) error {
 	fmt.Printf("cd %s\n", expandedPath)
 
 	return nil
+}
+
+func (u *Utils) SetEnv(key, value string) error {
+	return os.Setenv(key, value)
+}
+
+func (u *Utils) UnsetEnv(key string) error {
+	return os.Unsetenv(key)
 }
 
 func errorText(message string) string {
