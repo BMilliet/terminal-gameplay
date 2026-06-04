@@ -15,6 +15,7 @@ import (
 	"terminal-gameplay/internal/notes"
 	"terminal-gameplay/internal/scripts"
 	"terminal-gameplay/internal/settings"
+	"terminal-gameplay/internal/shellstate"
 	toolstab "terminal-gameplay/internal/tools"
 	"terminal-gameplay/internal/ui"
 	"terminal-gameplay/internal/utils"
@@ -855,27 +856,10 @@ func (r *Runner) syncShellState(config *utils.ConfigDTO, features *settings.Feat
 
 func (r *Runner) writeShellCommand(config *utils.ConfigDTO, command string, features *settings.FeaturesDTO) error {
 	shell := os.Getenv(envtab.ShellIntegrationEnv)
-	var commands []string
-	var err error
-	if features.Env {
-		commands, err = envtab.ShellCommands(config.Env, shell)
-	} else {
-		commands, err = envtab.DisableShellCommands(config.Env, shell)
-	}
+	commands, err := shellstate.Commands(config, features, shell)
 	if err != nil {
 		return err
 	}
-
-	var aliasCommands []string
-	if features.Alias {
-		aliasCommands, err = aliastab.ShellCommands(config.Aliases, shell)
-	} else {
-		aliasCommands, err = aliastab.DisableShellCommands(config.Aliases, shell)
-	}
-	if err != nil {
-		return err
-	}
-	commands = append(commands, aliasCommands...)
 
 	pendingKeys := make([]string, 0, len(r.pendingEnvUnsets))
 	for key := range r.pendingEnvUnsets {

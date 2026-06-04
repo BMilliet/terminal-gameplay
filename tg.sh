@@ -7,7 +7,7 @@
 
 tg() {
     # Run the binary from ~/.terminal-gameplay/tg
-    TG_SHELL_INTEGRATION=posix $HOME/.terminal-gameplay/terminal-gameplay
+    TG_SHELL_INTEGRATION=posix "$HOME/.terminal-gameplay/terminal-gameplay"
     
     # Check if command file exists
     local cmd_file="$HOME/.terminal-gameplay/cmd-exec"
@@ -23,3 +23,8 @@ tg() {
         eval "$cmd"
     fi
 }
+
+# Apply managed env vars and aliases whenever this wrapper is sourced.
+if [ -x "$HOME/.terminal-gameplay/terminal-gameplay" ]; then
+    eval "$(TG_SHELL_INTEGRATION=posix "$HOME/.terminal-gameplay/terminal-gameplay" --shell-init)"
+fi

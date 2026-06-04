@@ -7,7 +7,7 @@ function tg
     set -lx TG_SHELL_INTEGRATION fish
 
     # Run the binary in the same directory
-    $HOME/.terminal-gameplay/terminal-gameplay
+    "$HOME/.terminal-gameplay/terminal-gameplay"
     
     # Check if command file exists
     set -l cmd_file $HOME/.terminal-gameplay/cmd-exec
@@ -22,4 +22,9 @@ function tg
         # Execute the command in current shell
         eval $cmd
     end
+end
+
+# Apply managed env vars and aliases whenever this wrapper is sourced.
+if test -x "$HOME/.terminal-gameplay/terminal-gameplay"
+    eval (env TG_SHELL_INTEGRATION=fish "$HOME/.terminal-gameplay/terminal-gameplay" --shell-init)
 end
