@@ -20,7 +20,7 @@ func TestEnvPageShowsOnlyKeyAndStatusAndTogglesOnEnter(t *testing.T) {
 			},
 		},
 	}
-	features := &settings.FeaturesDTO{}
+	features := &settings.FeaturesDTO{Env: true}
 	selected := ""
 
 	model := NewMultiPageViewModel(config, features, envtab.PageName)
@@ -43,7 +43,7 @@ func TestEnvPageShowsOnlyKeyAndStatusAndTogglesOnEnter(t *testing.T) {
 }
 
 func TestEnvPageAddShortcutReturnsAddAction(t *testing.T) {
-	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{}, envtab.PageName)
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{Env: true}, envtab.PageName)
 	selected := ""
 	model.selected = &selected
 
@@ -51,5 +51,15 @@ func TestEnvPageAddShortcutReturnsAddAction(t *testing.T) {
 
 	if selected != envtab.PageName+"|"+envtab.AddAction+"|" {
 		t.Fatalf("selected = %q, want env add action", selected)
+	}
+}
+
+func TestEnvPageIsHiddenWhenFeatureIsDisabled(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{Env: false})
+
+	for _, page := range model.availPages {
+		if page == EnvPage {
+			t.Fatal("EnvPage should not be available when env feature is disabled")
+		}
 	}
 }

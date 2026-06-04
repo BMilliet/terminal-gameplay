@@ -86,6 +86,23 @@ func Apply(items utils.OrderedEnvMap, runtime Runtime) error {
 	return nil
 }
 
+func Disable(items utils.OrderedEnvMap, runtime Runtime) error {
+	if err := validateItems(items); err != nil {
+		return err
+	}
+
+	for _, key := range items.Keys {
+		if _, ok := items.Values[key]; !ok {
+			continue
+		}
+		if err := runtime.UnsetEnv(key); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func ShellCommands(items utils.OrderedEnvMap, shell string) ([]string, error) {
 	if err := validateItems(items); err != nil {
 		return nil, err
@@ -100,6 +117,27 @@ func ShellCommands(items utils.OrderedEnvMap, shell string) ([]string, error) {
 
 		if value.Active {
 			commands = append(commands, setCommand(key, value.Value, shell))
+			continue
+		}
+
+		command, err := UnsetCommand(key, shell)
+		if err != nil {
+			return nil, err
+		}
+		commands = append(commands, command)
+	}
+
+	return commands, nil
+}
+
+func DisableShellCommands(items utils.OrderedEnvMap, shell string) ([]string, error) {
+	if err := validateItems(items); err != nil {
+		return nil, err
+	}
+
+	commands := make([]string, 0, items.Len())
+	for _, key := range items.Keys {
+		if _, ok := items.Values[key]; !ok {
 			continue
 		}
 

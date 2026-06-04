@@ -10,6 +10,7 @@ type FeaturesDTO struct {
 	FrequentGoTo bool           `json:"frequent_goTo"`
 	Scripts      bool           `json:"scripts"`
 	Notes        bool           `json:"notes"`
+	Env          bool           `json:"env"`
 	Frequencies  map[string]int `json:"frequencies"`
 }
 
@@ -18,6 +19,7 @@ func GetDefaultFeatures() *FeaturesDTO {
 		FrequentGoTo: true,
 		Scripts:      true,
 		Notes:        true,
+		Env:          true,
 		Frequencies:  make(map[string]int),
 	}
 }
@@ -27,6 +29,7 @@ func (f *FeaturesDTO) UnmarshalJSON(data []byte) error {
 		FrequentGoTo *bool          `json:"frequent_goTo"`
 		Scripts      *bool          `json:"scripts"`
 		Notes        *bool          `json:"notes"`
+		Env          *bool          `json:"env"`
 		Frequencies  map[string]int `json:"frequencies"`
 	}
 
@@ -46,6 +49,9 @@ func (f *FeaturesDTO) UnmarshalJSON(data []byte) error {
 	}
 	if parsed.Notes != nil {
 		f.Notes = *parsed.Notes
+	}
+	if parsed.Env != nil {
+		f.Env = *parsed.Env
 	}
 	if parsed.Frequencies != nil {
 		f.Frequencies = parsed.Frequencies

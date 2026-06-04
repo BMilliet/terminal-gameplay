@@ -103,7 +103,9 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 	if features.Notes {
 		availPages = append(availPages, NotesPage)
 	}
-	availPages = append(availPages, EnvPage)
+	if features.Env {
+		availPages = append(availPages, EnvPage)
+	}
 
 	// Always add tools before settings.
 	availPages = append(availPages, ToolsPage)

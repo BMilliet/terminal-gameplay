@@ -10,6 +10,7 @@ const (
 	FrequentGoToFeature  = "frequent_goTo"
 	ScriptsFeature       = "scripts"
 	NotesFeature         = "notes"
+	EnvFeature           = "env"
 )
 
 func BuildSettingsList() []utils.ListItem {
@@ -42,6 +43,11 @@ func BuildFeaturesList(features *FeaturesDTO) []utils.ListItem {
 		{
 			T:     NotesFeature,
 			D:     enabledStatus(features.Notes),
+			IsDiv: false,
+		},
+		{
+			T:     EnvFeature,
+			D:     enabledStatus(features.Env),
 			IsDiv: false,
 		},
 	}

@@ -329,7 +329,7 @@ func TestStartAppliesConfiguredEnvAndWritesShellCommands(t *testing.T) {
 			},
 		},
 	})
-	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Env: true})
 
 	runtime := newFakeRuntime()
 	runtime.env["OLD"] = "previous"
@@ -359,7 +359,7 @@ func TestStartWritesFishCommandsWhenFishIntegrationIsSet(t *testing.T) {
 			},
 		},
 	})
-	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Env: true})
 	views := &fakeViewBuilder{multiPageResults: []string{"invalid"}}
 
 	NewRunner(fm, newFakeRuntime(), views).Start()
@@ -367,6 +367,108 @@ func TestStartWritesFishCommandsWhenFishIntegrationIsSet(t *testing.T) {
 	wantCommand := "set -gx FOO '123';\nset -e OLD;"
 	if got := fm.files[fm.CommandExecPath()]; got != wantCommand {
 		t.Fatalf("command file = %q, want %q", got, wantCommand)
+	}
+}
+
+func TestStartEnvFeatureDisabledUnsetsConfiguredKeys(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Env: utils.OrderedEnvMap{
+			Keys: []string{"FOO"},
+			Values: map[string]utils.EnvValue{
+				"FOO": {Value: "123", Active: true},
+			},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Env: false})
+
+	runtime := newFakeRuntime()
+	runtime.env["FOO"] = "123"
+	views := &fakeViewBuilder{multiPageResults: []string{"invalid"}}
+
+	NewRunner(fm, runtime, views).Start()
+
+	if _, ok := runtime.env["FOO"]; ok {
+		t.Fatalf("FOO should be removed while env feature is disabled: %#v", runtime.env)
+	}
+	if got := fm.files[fm.CommandExecPath()]; got != "unset FOO;" {
+		t.Fatalf("command file = %q, want unset FOO", got)
+	}
+}
+
+func TestStartEnvFeatureToggleDisablesInjectionAndPreservesConfig(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Env: utils.OrderedEnvMap{
+			Keys: []string{"FOO"},
+			Values: map[string]utils.EnvValue{
+				"FOO": {Value: "123", Active: true},
+			},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Env: true})
+
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{
+			settings.FeaturesPageName + "|" + settings.EnvFeature + "|enabled ✓",
+			"invalid",
+		},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	var savedFeatures settings.FeaturesDTO
+	mustUnmarshalJSON(t, last(t, fm.featuresWrites), &savedFeatures)
+	if savedFeatures.Env {
+		t.Fatal("saved env feature = true, want false")
+	}
+	if _, ok := runtime.env["FOO"]; ok {
+		t.Fatalf("FOO should be removed after disabling env feature: %#v", runtime.env)
+	}
+	if got := fm.files[fm.CommandExecPath()]; got != "unset FOO;" {
+		t.Fatalf("command file = %q, want unset FOO", got)
+	}
+
+	var config utils.ConfigDTO
+	mustUnmarshalJSON(t, fm.configContent, &config)
+	if got, ok := config.Env.Get("FOO"); !ok || !got.Active || got.Value != "123" {
+		t.Fatalf("configured FOO = %#v, %v; want preserved active value", got, ok)
+	}
+}
+
+func TestStartEnvFeatureToggleEnablesConfiguredInjection(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Env: utils.OrderedEnvMap{
+			Keys: []string{"FOO"},
+			Values: map[string]utils.EnvValue{
+				"FOO": {Value: "123", Active: true},
+			},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Env: false})
+
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{
+			settings.FeaturesPageName + "|" + settings.EnvFeature + "|disabled ✗",
+			"invalid",
+		},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	var savedFeatures settings.FeaturesDTO
+	mustUnmarshalJSON(t, last(t, fm.featuresWrites), &savedFeatures)
+	if !savedFeatures.Env {
+		t.Fatal("saved env feature = false, want true")
+	}
+	if got := runtime.env["FOO"]; got != "123" {
+		t.Fatalf("runtime FOO = %q, want 123", got)
+	}
+	if got := fm.files[fm.CommandExecPath()]; got != "export FOO='123';" {
+		t.Fatalf("command file = %q, want FOO export", got)
 	}
 }
 
@@ -380,7 +482,7 @@ func TestStartEnvEnterTogglesActiveState(t *testing.T) {
 			},
 		},
 	})
-	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Env: true})
 
 	runtime := newFakeRuntime()
 	views := &fakeViewBuilder{
@@ -405,7 +507,7 @@ func TestStartEnvEnterTogglesActiveState(t *testing.T) {
 func TestStartEnvAddUsesSeparateKeyAndValueInputsAndActivatesKey(t *testing.T) {
 	fm := newFakeFileManager()
 	fm.configContent = mustJSON(t, &utils.ConfigDTO{})
-	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Env: true})
 
 	runtime := newFakeRuntime()
 	views := &fakeViewBuilder{
@@ -431,7 +533,7 @@ func TestStartEnvAddUsesSeparateKeyAndValueInputsAndActivatesKey(t *testing.T) {
 func TestStartEnvAddCancelledAtValueDoesNotChangeConfig(t *testing.T) {
 	fm := newFakeFileManager()
 	fm.configContent = mustJSON(t, &utils.ConfigDTO{})
-	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Env: true})
 
 	runtime := newFakeRuntime()
 	views := &fakeViewBuilder{
@@ -459,7 +561,7 @@ func TestStartEnvDeleteUnsetsRemovedKey(t *testing.T) {
 			},
 		},
 	})
-	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Env: true})
 
 	runtime := newFakeRuntime()
 	views := &fakeViewBuilder{
@@ -494,7 +596,7 @@ func TestStartGoToCombinesActiveEnvWithCdCommand(t *testing.T) {
 			Values: map[string]utils.EnvValue{"FOO": {Value: "123", Active: true}},
 		},
 	})
-	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Env: true})
 
 	runtime := newFakeRuntime()
 	runtime.expanded["~/work"] = "/home/test/work"

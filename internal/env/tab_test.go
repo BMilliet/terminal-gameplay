@@ -98,6 +98,31 @@ func TestApplyRejectsInvalidKeyBeforeChangingRuntime(t *testing.T) {
 	}
 }
 
+func TestDisableUnsetsEveryManagedKeyAndPreservesConfig(t *testing.T) {
+	items := utils.OrderedEnvMap{
+		Keys: []string{"FOO", "OLD"},
+		Values: map[string]utils.EnvValue{
+			"FOO": {Value: "123", Active: true},
+			"OLD": {Value: "456", Active: false},
+		},
+	}
+	runtime := &fakeRuntime{set: map[string]string{"FOO": "123", "OLD": "previous"}}
+
+	if err := Disable(items, runtime); err != nil {
+		t.Fatalf("Disable() error = %v", err)
+	}
+
+	if len(runtime.set) != 0 {
+		t.Fatalf("runtime env = %#v, want empty", runtime.set)
+	}
+	if got := runtime.unset; !reflect.DeepEqual(got, []string{"FOO", "OLD"}) {
+		t.Fatalf("unset calls = %#v, want all managed keys", got)
+	}
+	if got := items.Values["FOO"]; got.Value != "123" || !got.Active {
+		t.Fatalf("configured FOO changed = %#v", got)
+	}
+}
+
 func TestShellCommandsUseShellSpecificSyntaxAndQuoteValues(t *testing.T) {
 	items := utils.OrderedEnvMap{
 		Keys: []string{"FOO", "OLD"},
@@ -123,5 +148,24 @@ func TestShellCommandsUseShellSpecificSyntaxAndQuoteValues(t *testing.T) {
 	wantFish := []string{`set -gx FOO 'one\'two';`, "set -e OLD;"}
 	if !reflect.DeepEqual(fish, wantFish) {
 		t.Fatalf("fish commands = %#v, want %#v", fish, wantFish)
+	}
+}
+
+func TestDisableShellCommandsUnsetAllKeys(t *testing.T) {
+	items := utils.OrderedEnvMap{
+		Keys: []string{"FOO", "OLD"},
+		Values: map[string]utils.EnvValue{
+			"FOO": {Value: "123", Active: true},
+			"OLD": {Value: "456", Active: false},
+		},
+	}
+
+	got, err := DisableShellCommands(items, FishShell)
+	if err != nil {
+		t.Fatalf("DisableShellCommands() error = %v", err)
+	}
+	want := []string{"set -e FOO;", "set -e OLD;"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("commands = %#v, want %#v", got, want)
 	}
 }

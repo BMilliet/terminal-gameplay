@@ -21,6 +21,9 @@ func TestFeaturesUnmarshalAppliesDefaultsForMissingFlags(t *testing.T) {
 	if !features.Notes {
 		t.Fatalf("Notes = false, want default true")
 	}
+	if !features.Env {
+		t.Fatalf("Env = false, want default true")
+	}
 	if features.Frequencies == nil {
 		t.Fatalf("Frequencies is nil, want initialized map")
 	}
@@ -41,12 +44,13 @@ func TestBuildFeaturesListReflectsEnabledStatus(t *testing.T) {
 		FrequentGoTo: true,
 		Scripts:      false,
 		Notes:        true,
+		Env:          false,
 	}
 
 	got := BuildFeaturesList(features)
 
-	want := []string{"enabled ✓", "disabled ✗", "enabled ✓"}
-	statuses := []string{got[0].D, got[1].D, got[2].D}
+	want := []string{"enabled ✓", "disabled ✗", "enabled ✓", "disabled ✗"}
+	statuses := []string{got[0].D, got[1].D, got[2].D, got[3].D}
 	if !reflect.DeepEqual(statuses, want) {
 		t.Fatalf("feature statuses = %#v, want %#v", statuses, want)
 	}

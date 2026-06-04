@@ -99,8 +99,14 @@ func (r *Runner) Start() {
 		}
 	}
 
-	if err := r.syncEnvironment(config); err != nil {
-		r.runtime.HandleError(err, "Failed to apply environment")
+	if features.Env {
+		if err := r.syncEnvironment(config); err != nil {
+			r.runtime.HandleError(err, "Failed to apply environment")
+		}
+	} else {
+		if err := r.disableEnvironment(config); err != nil {
+			r.runtime.HandleError(err, "Failed to disable environment")
+		}
 	}
 
 	if features.Scripts {
@@ -176,6 +182,17 @@ func (r *Runner) Start() {
 						r.runtime.HandleError(err, "Failed to initialize notes")
 					}
 				}
+			case settings.EnvFeature:
+				features.Env = !features.Env
+				if features.Env {
+					if err := r.syncEnvironment(config); err != nil {
+						r.runtime.HandleError(err, "Failed to apply environment")
+					}
+				} else {
+					if err := r.disableEnvironment(config); err != nil {
+						r.runtime.HandleError(err, "Failed to disable environment")
+					}
+				}
 			}
 
 			jsonStr, err := utils.ToJSON(features)
@@ -238,7 +255,7 @@ func (r *Runner) Start() {
 			// Write cd command to file
 			command := fmt.Sprintf("cd %s", expandedPath)
 
-			if err := r.writeShellCommand(config, command); err != nil {
+			if err := r.writeShellCommand(config, command, features.Env); err != nil {
 				r.runtime.HandleError(err, "Failed to write command file")
 			}
 			return
@@ -650,7 +667,7 @@ func (r *Runner) deleteEnv(config *utils.ConfigDTO, key string) error {
 	if err := r.writeConfig(config); err != nil {
 		return err
 	}
-	return r.writeShellCommand(config, "")
+	return r.writeShellCommand(config, "", true)
 }
 
 func (r *Runner) editScript(scriptName string) error {
@@ -751,12 +768,25 @@ func (r *Runner) syncEnvironment(config *utils.ConfigDTO) error {
 	if err := envtab.Apply(config.Env, r.runtime); err != nil {
 		return err
 	}
-	return r.writeShellCommand(config, "")
+	return r.writeShellCommand(config, "", true)
 }
 
-func (r *Runner) writeShellCommand(config *utils.ConfigDTO, command string) error {
+func (r *Runner) disableEnvironment(config *utils.ConfigDTO) error {
+	if err := envtab.Disable(config.Env, r.runtime); err != nil {
+		return err
+	}
+	return r.writeShellCommand(config, "", false)
+}
+
+func (r *Runner) writeShellCommand(config *utils.ConfigDTO, command string, envEnabled bool) error {
 	shell := os.Getenv(envtab.ShellIntegrationEnv)
-	commands, err := envtab.ShellCommands(config.Env, shell)
+	var commands []string
+	var err error
+	if envEnabled {
+		commands, err = envtab.ShellCommands(config.Env, shell)
+	} else {
+		commands, err = envtab.DisableShellCommands(config.Env, shell)
+	}
 	if err != nil {
 		return err
 	}

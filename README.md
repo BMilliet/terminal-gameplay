@@ -117,6 +117,10 @@ In the `env` tab, press `a`, enter the key (such as `FOO`), then enter its value
 state. Active keys are exported to the current shell and inherited by scripts;
 inactive keys are unset.
 
+The `env` feature can be enabled or disabled under `settings` → `features`.
+Disabling it hides the tab and unsets every managed key without deleting the
+saved values or their active/inactive states.
+
 ### Fuzzy Find Search
 
 Press `/` to activate the fuzzy-find search mode. This feature allows you to quickly filter items by typing:
