@@ -15,7 +15,7 @@ deps: ## Download and install dependencies
 	@echo "📦 Installing dependencies..."
 	go mod tidy
 
-build: ## Build the application
+build: test ## Build the application
 	@echo "🏗️  Building $(BINARY_NAME)..."
 	go build -o $(BINARY_NAME) .
 	mkdir -p $(INSTALL_DIR)

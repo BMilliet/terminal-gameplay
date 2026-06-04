@@ -34,15 +34,13 @@ func BuildList(items utils.OrderedEnvMap) []utils.ListItem {
 		}
 
 		state := InactiveState
-		description := "inactive ✗"
 		if value.Active {
 			state = ActiveState
-			description = "active ✓"
 		}
 
 		listItems = append(listItems, utils.ListItem{
 			T:      key,
-			D:      description,
+			D:      value.Value,
 			Status: state,
 		})
 	}

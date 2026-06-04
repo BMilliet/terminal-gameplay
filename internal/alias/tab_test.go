@@ -7,7 +7,7 @@ import (
 	"terminal-gameplay/internal/utils"
 )
 
-func TestBuildListShowsNamesAndActiveStatesWithoutCommands(t *testing.T) {
+func TestBuildListShowsNamesCommandsAndActiveStates(t *testing.T) {
 	items := utils.OrderedAliasMap{
 		Keys: []string{"cat", "ll"},
 		Values: map[string]utils.AliasValue{
@@ -19,8 +19,8 @@ func TestBuildListShowsNamesAndActiveStatesWithoutCommands(t *testing.T) {
 	got := BuildList(items)
 
 	want := []utils.ListItem{
-		{T: "cat", D: "active ✓", Status: ActiveState},
-		{T: "ll", D: "inactive ✗", Status: InactiveState},
+		{T: "cat", D: "bat", Status: ActiveState},
+		{T: "ll", D: "ls -la", Status: InactiveState},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("BuildList() = %#v, want %#v", got, want)

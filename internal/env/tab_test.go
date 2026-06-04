@@ -23,7 +23,7 @@ func (f *fakeRuntime) UnsetEnv(key string) error {
 	return nil
 }
 
-func TestBuildListShowsKeysAndActiveStatesWithoutValues(t *testing.T) {
+func TestBuildListShowsKeysValuesAndActiveStates(t *testing.T) {
 	items := utils.OrderedEnvMap{
 		Keys: []string{"FOO", "SECRET"},
 		Values: map[string]utils.EnvValue{
@@ -35,8 +35,8 @@ func TestBuildListShowsKeysAndActiveStatesWithoutValues(t *testing.T) {
 	got := BuildList(items)
 
 	want := []utils.ListItem{
-		{T: "FOO", D: "active ✓", Status: ActiveState},
-		{T: "SECRET", D: "inactive ✗", Status: InactiveState},
+		{T: "FOO", D: "123", Status: ActiveState},
+		{T: "SECRET", D: "do-not-show", Status: InactiveState},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("BuildList() = %#v, want %#v", got, want)

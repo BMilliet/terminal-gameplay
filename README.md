@@ -114,9 +114,9 @@ This will launch the interactive TUI where you can:
 4. **Select** an item by pressing Enter
 
 In the `env` tab, press `a`, enter the key (such as `FOO`), then enter its value
-(such as `123`). Press Enter on an env key to toggle its `active`/`inactive`
-state. Active keys are exported to the current shell and inherited by scripts;
-inactive keys are unset.
+(such as `123`). The list shows each saved value and its `active`/`inactive`
+state. Press Enter on an env key to toggle that state. Active keys are exported
+to the current shell and inherited by scripts; inactive keys are unset.
 
 The `env` feature can be enabled or disabled under `settings` → `features`.
 Disabling it hides the tab and unsets every managed key without deleting the
@@ -124,8 +124,8 @@ saved values or their active/inactive states.
 
 The `alias` tab follows the same workflow. Press `a`, enter the alias word
 (such as `cat`), then enter the command it should execute (such as `bat`).
-Enter toggles the alias, and `dd` removes it. The feature can be enabled or
-disabled under `settings` → `features`.
+The list shows each command and its state. Enter toggles the alias, and `dd`
+removes it. The feature can be enabled or disabled under `settings` → `features`.
 
 ### Fuzzy Find Search
 

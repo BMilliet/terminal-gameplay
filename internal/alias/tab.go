@@ -61,15 +61,13 @@ func BuildList(items utils.OrderedAliasMap) []utils.ListItem {
 		}
 
 		state := InactiveState
-		description := "inactive ✗"
 		if value.Active {
 			state = ActiveState
-			description = "active ✓"
 		}
 
 		listItems = append(listItems, utils.ListItem{
 			T:      name,
-			D:      description,
+			D:      value.Value,
 			Status: state,
 		})
 	}

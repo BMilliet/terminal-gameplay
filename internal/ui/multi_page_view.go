@@ -26,6 +26,9 @@ const (
 	minContentWidth     = 72
 	screenGutterWidth   = 4
 	rowChromeWidth      = 4
+	toggleStatusDivider = " · "
+	toggleValuePadding  = 2
+	toggleValueMaxWidth = 42
 	headerTickDuration  = 140 * time.Millisecond
 	gradientSteps       = 14
 )
@@ -645,6 +648,7 @@ func (m MultiPageViewModel) renderDivider(item utils.ListItem) string {
 
 func (m MultiPageViewModel) renderListItem(item utils.ListItem, index int) string {
 	selected := m.cursor == index
+	toggleLike := m.currentPage == EnvPage || m.currentPage == AliasPage
 	settingsLike := m.currentPage == SettingsPage || m.currentPage == FeaturesPage || m.currentPage == EnvPage || m.currentPage == AliasPage
 	width := m.contentWidth()
 	titleWidth := m.titleColumnWidth()
@@ -654,7 +658,11 @@ func (m MultiPageViewModel) renderListItem(item utils.ListItem, index int) strin
 	}
 
 	titleText := truncateSingleLine(item.T, titleWidth)
-	valueText := truncateSingleLine(item.D, valueWidth)
+	valueTextWidth := valueWidth
+	if toggleLike {
+		valueTextWidth = m.toggleValueColumnWidth(valueWidth)
+	}
+	valueText := truncateSingleLine(item.D, valueTextWidth)
 	if m.searchMode && m.searchQuery != "" {
 		titleText = m.highlightMatches(titleText, m.searchQuery)
 		valueText = m.highlightMatches(valueText, m.searchQuery)
@@ -667,7 +675,9 @@ func (m MultiPageViewModel) renderListItem(item utils.ListItem, index int) strin
 
 	if settingsLike {
 		titleColor = m.styles.SettingsTitleColor
-		valueColor = m.styles.SettingsValueColor
+		if !toggleLike {
+			valueColor = m.styles.SettingsValueColor
+		}
 	}
 
 	if selected {
@@ -693,7 +703,9 @@ func (m MultiPageViewModel) renderListItem(item utils.ListItem, index int) strin
 	value := valueText
 	lowerValue := strings.ToLower(item.D)
 	lowerStatus := strings.ToLower(item.Status)
-	if settingsLike && (lowerStatus == envtab.InactiveState || strings.Contains(lowerValue, "disabled") || strings.Contains(lowerValue, "inactive")) {
+	if toggleLike {
+		value = m.renderToggleValue(valueText, item.Status, valueColor, selected, valueWidth)
+	} else if settingsLike && (lowerStatus == envtab.InactiveState || strings.Contains(lowerValue, "disabled") || strings.Contains(lowerValue, "inactive")) {
 		value = lipgloss.NewStyle().
 			Foreground(m.styles.SettingsDisabledColor).
 			Bold(selected).
@@ -723,6 +735,71 @@ func (m MultiPageViewModel) renderListItem(item utils.ListItem, index int) strin
 	}
 
 	return lipgloss.NewStyle().Width(width).Render(row)
+}
+
+func (m MultiPageViewModel) renderToggleValue(value, status string, valueColor lipgloss.Color, selected bool, width int) string {
+	statusColor := m.styles.SettingsDisabledColor
+	if strings.EqualFold(status, envtab.ActiveState) {
+		statusColor = m.styles.SettingsEnabledColor
+	}
+
+	statusWidth := toggleStatusColumnWidth()
+	valueWidth := m.toggleValueColumnWidth(width)
+
+	content := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		lipgloss.NewStyle().
+			Foreground(valueColor).
+			Width(valueWidth).
+			Render(value),
+		m.styles.Text(toggleStatusDivider, m.styles.DividerColor),
+		lipgloss.NewStyle().
+			Foreground(statusColor).
+			Bold(selected).
+			Width(statusWidth).
+			Render(toggleStatusText(status)),
+	)
+
+	return lipgloss.NewStyle().Width(width).Render(content)
+}
+
+func (m MultiPageViewModel) toggleValueColumnWidth(availableWidth int) int {
+	maxAvailableWidth := availableWidth - lipgloss.Width(toggleStatusDivider) - toggleStatusColumnWidth()
+	if maxAvailableWidth < 1 {
+		return 1
+	}
+
+	width := 1
+	for _, item := range m.getCurrentList() {
+		itemWidth := lipgloss.Width(strings.TrimSpace(strings.Join(strings.Fields(item.D), " "))) + toggleValuePadding
+		if itemWidth > width {
+			width = itemWidth
+		}
+	}
+
+	if width > toggleValueMaxWidth {
+		width = toggleValueMaxWidth
+	}
+	if width > maxAvailableWidth {
+		width = maxAvailableWidth
+	}
+	return width
+}
+
+func toggleStatusColumnWidth() int {
+	activeWidth := lipgloss.Width(toggleStatusText(envtab.ActiveState))
+	inactiveWidth := lipgloss.Width(toggleStatusText(envtab.InactiveState))
+	if activeWidth > inactiveWidth {
+		return activeWidth
+	}
+	return inactiveWidth
+}
+
+func toggleStatusText(status string) string {
+	if strings.EqualFold(status, envtab.ActiveState) {
+		return "active ✓"
+	}
+	return "inactive ✗"
 }
 
 func (m MultiPageViewModel) renderFooter() string {
@@ -1011,8 +1088,9 @@ func (m *MultiPageViewModel) updateFilteredList() {
 		// Check if query matches in title or description
 		titleLower := strings.ToLower(item.T)
 		descLower := strings.ToLower(item.D)
+		statusLower := strings.ToLower(item.Status)
 
-		if fuzzyMatch(titleLower, query) || fuzzyMatch(descLower, query) {
+		if fuzzyMatch(titleLower, query) || fuzzyMatch(descLower, query) || fuzzyMatch(statusLower, query) {
 			m.filteredList = append(m.filteredList, item)
 		}
 	}

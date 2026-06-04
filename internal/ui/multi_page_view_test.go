@@ -10,9 +10,11 @@ import (
 	"terminal-gameplay/internal/utils"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
-func TestEnvPageShowsOnlyKeyAndStatusAndTogglesOnEnter(t *testing.T) {
+func TestEnvPageShowsKeyValueAndStatusAndTogglesOnEnter(t *testing.T) {
 	config := &utils.ConfigDTO{
 		Env: utils.OrderedEnvMap{
 			Keys: []string{"FOO"},
@@ -30,16 +32,88 @@ func TestEnvPageShowsOnlyKeyAndStatusAndTogglesOnEnter(t *testing.T) {
 	if model.currentPage != EnvPage {
 		t.Fatalf("current page = %v, want EnvPage", model.currentPage)
 	}
-	if got := model.envList[0]; got.T != "FOO" || got.D != "active ✓" {
-		t.Fatalf("env item = %#v, want FOO active", got)
+	if got := model.envList[0]; got.T != "FOO" || got.D != "secret-value" || got.Status != envtab.ActiveState {
+		t.Fatalf("env item = %#v, want FOO value and active state", got)
 	}
-	if view := model.View(); strings.Contains(view, "secret-value") {
-		t.Fatalf("env view exposed value: %q", view)
+	if view := model.View(); !strings.Contains(view, "secret-value") || !strings.Contains(view, "active ✓") {
+		t.Fatalf("env view does not show value and status: %q", view)
 	}
 
 	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if selected != envtab.PageName+"|FOO|active ✓" {
+	if selected != envtab.PageName+"|FOO|secret-value" {
 		t.Fatalf("selected = %q, want env toggle result", selected)
+	}
+}
+
+func TestEnvValueUsesGoToValueColorAndSeparateStatusColor(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
+	config := &utils.ConfigDTO{
+		Env: utils.OrderedEnvMap{
+			Keys: []string{"FOO"},
+			Values: map[string]utils.EnvValue{
+				"FOO": {Value: "123", Active: true},
+			},
+		},
+	}
+	model := NewMultiPageViewModel(config, &settings.FeaturesDTO{Env: true}, envtab.PageName)
+	model.cursor = 1
+
+	row := model.renderListItem(model.envList[0], 0)
+	valueStyle := lipgloss.NewStyle().Foreground(model.styles.FooterColor).Render("123")
+	statusStyle := lipgloss.NewStyle().Foreground(model.styles.SettingsEnabledColor).Render("active ✓")
+	statusColoredValue := lipgloss.NewStyle().Foreground(model.styles.SettingsEnabledColor).Render("123")
+
+	if !strings.Contains(row, valueStyle) {
+		t.Fatalf("env value does not use goTo value color: %q", row)
+	}
+	if !strings.Contains(row, statusStyle) {
+		t.Fatalf("env active status does not use enabled color: %q", row)
+	}
+	if strings.Contains(row, statusColoredValue) {
+		t.Fatalf("env value incorrectly uses status color: %q", row)
+	}
+}
+
+func TestEnvStatusesUseFixedColumn(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
+	config := &utils.ConfigDTO{
+		Env: utils.OrderedEnvMap{
+			Keys: []string{"SHORT", "LONG"},
+			Values: map[string]utils.EnvValue{
+				"SHORT": {Value: "1", Active: true},
+				"LONG":  {Value: "a much longer value", Active: false},
+			},
+		},
+	}
+	model := NewMultiPageViewModel(config, &settings.FeaturesDTO{Env: true}, envtab.PageName)
+	model.cursor = len(model.envList)
+
+	activeRow := model.renderListItem(model.envList[0], 0)
+	inactiveRow := model.renderListItem(model.envList[1], 1)
+	activeColumn := strings.Index(activeRow, "active ✓")
+	inactiveColumn := strings.Index(inactiveRow, "inactive ✗")
+
+	if activeColumn < 0 || inactiveColumn < 0 {
+		t.Fatalf("status missing from rows: active=%q inactive=%q", activeRow, inactiveRow)
+	}
+	if activeColumn != inactiveColumn {
+		t.Fatalf("status columns differ: active=%d inactive=%d", activeColumn, inactiveColumn)
+	}
+
+	valueAreaWidth := model.contentWidth() - model.titleColumnWidth() - rowChromeWidth
+	wantValueWidth := lipgloss.Width("a much longer value") + toggleValuePadding
+	if got := model.toggleValueColumnWidth(valueAreaWidth); got != wantValueWidth {
+		t.Fatalf("value column width = %d, want content-based width %d", got, wantValueWidth)
 	}
 }
 
@@ -65,7 +139,7 @@ func TestEnvPageIsHiddenWhenFeatureIsDisabled(t *testing.T) {
 	}
 }
 
-func TestAliasPageShowsOnlyNameAndStatusAndTogglesOnEnter(t *testing.T) {
+func TestAliasPageShowsNameCommandAndStatusAndTogglesOnEnter(t *testing.T) {
 	config := &utils.ConfigDTO{
 		Aliases: utils.OrderedAliasMap{
 			Keys: []string{"cat"},
@@ -83,15 +157,15 @@ func TestAliasPageShowsOnlyNameAndStatusAndTogglesOnEnter(t *testing.T) {
 	if model.currentPage != AliasPage {
 		t.Fatalf("current page = %v, want AliasPage", model.currentPage)
 	}
-	if got := model.aliasList[0]; got.T != "cat" || got.D != "active ✓" {
-		t.Fatalf("alias item = %#v, want cat active", got)
+	if got := model.aliasList[0]; got.T != "cat" || got.D != "bat --plain" || got.Status != aliastab.ActiveState {
+		t.Fatalf("alias item = %#v, want cat command and active state", got)
 	}
-	if view := model.View(); strings.Contains(view, "bat --plain") {
-		t.Fatalf("alias view exposed command: %q", view)
+	if view := model.View(); !strings.Contains(view, "bat --plain") || !strings.Contains(view, "active ✓") {
+		t.Fatalf("alias view does not show command and status: %q", view)
 	}
 
 	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if selected != aliastab.PageName+"|cat|active ✓" {
+	if selected != aliastab.PageName+"|cat|bat --plain" {
 		t.Fatalf("selected = %q, want alias toggle result", selected)
 	}
 }
