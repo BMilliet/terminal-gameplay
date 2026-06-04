@@ -111,9 +111,46 @@ func TestEnvStatusesUseFixedColumn(t *testing.T) {
 	}
 
 	valueAreaWidth := model.contentWidth() - model.titleColumnWidth() - rowChromeWidth
-	wantValueWidth := lipgloss.Width("a much longer value") + toggleValuePadding
-	if got := model.toggleValueColumnWidth(valueAreaWidth); got != wantValueWidth {
-		t.Fatalf("value column width = %d, want content-based width %d", got, wantValueWidth)
+	if got := model.toggleValueColumnWidth(valueAreaWidth); got != toggleValueWidth {
+		t.Fatalf("value column width = %d, want standard width %d", got, toggleValueWidth)
+	}
+}
+
+func TestEnvAndAliasStatusesUseSameColumn(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
+	config := &utils.ConfigDTO{
+		Env: utils.OrderedEnvMap{
+			Keys: []string{"FOO"},
+			Values: map[string]utils.EnvValue{
+				"FOO": {Value: "short", Active: true},
+			},
+		},
+		Aliases: utils.OrderedAliasMap{
+			Keys: []string{"long_alias_name"},
+			Values: map[string]utils.AliasValue{
+				"long_alias_name": {Value: "a much longer command", Active: true},
+			},
+		},
+	}
+	features := &settings.FeaturesDTO{Env: true, Alias: true}
+	envModel := NewMultiPageViewModel(config, features, envtab.PageName)
+	aliasModel := NewMultiPageViewModel(config, features, aliastab.PageName)
+	envModel.cursor = len(envModel.envList)
+	aliasModel.cursor = len(aliasModel.aliasList)
+
+	envColumn := strings.Index(envModel.renderListItem(envModel.envList[0], 0), "active ✓")
+	aliasColumn := strings.Index(aliasModel.renderListItem(aliasModel.aliasList[0], 0), "active ✓")
+
+	if envColumn < 0 || aliasColumn < 0 {
+		t.Fatalf("status missing from rows: env=%d alias=%d", envColumn, aliasColumn)
+	}
+	if envColumn != aliasColumn {
+		t.Fatalf("status columns differ: env=%d alias=%d", envColumn, aliasColumn)
 	}
 }
 

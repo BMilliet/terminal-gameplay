@@ -27,8 +27,7 @@ const (
 	screenGutterWidth   = 4
 	rowChromeWidth      = 4
 	toggleStatusDivider = " · "
-	toggleValuePadding  = 2
-	toggleValueMaxWidth = 42
+	toggleValueWidth    = 32
 	headerTickDuration  = 140 * time.Millisecond
 	gradientSteps       = 14
 )
@@ -768,22 +767,10 @@ func (m MultiPageViewModel) toggleValueColumnWidth(availableWidth int) int {
 	if maxAvailableWidth < 1 {
 		return 1
 	}
-
-	width := 1
-	for _, item := range m.getCurrentList() {
-		itemWidth := lipgloss.Width(strings.TrimSpace(strings.Join(strings.Fields(item.D), " "))) + toggleValuePadding
-		if itemWidth > width {
-			width = itemWidth
-		}
+	if toggleValueWidth > maxAvailableWidth {
+		return maxAvailableWidth
 	}
-
-	if width > toggleValueMaxWidth {
-		width = toggleValueMaxWidth
-	}
-	if width > maxAvailableWidth {
-		width = maxAvailableWidth
-	}
-	return width
+	return toggleValueWidth
 }
 
 func toggleStatusColumnWidth() int {
