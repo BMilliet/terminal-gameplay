@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	aliastab "terminal-gameplay/internal/alias"
 	envtab "terminal-gameplay/internal/env"
 	"terminal-gameplay/internal/frequent"
 	gototab "terminal-gameplay/internal/goto"
@@ -48,6 +49,7 @@ const (
 	ScriptsPage
 	NotesPage
 	EnvPage
+	AliasPage
 	ToolsPage
 	SettingsPage
 	FeaturesPage
@@ -62,6 +64,7 @@ type MultiPageViewModel struct {
 	scriptList    []utils.ListItem
 	notesList     []utils.ListItem
 	envList       []utils.ListItem
+	aliasList     []utils.ListItem
 	toolsList     []utils.ListItem
 	settingsList  []utils.ListItem
 	featuresList  []utils.ListItem
@@ -106,6 +109,9 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 	if features.Env {
 		availPages = append(availPages, EnvPage)
 	}
+	if features.Alias {
+		availPages = append(availPages, AliasPage)
+	}
 
 	// Always add tools before settings.
 	availPages = append(availPages, ToolsPage)
@@ -137,6 +143,7 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 		scriptList:    scripts.BuildList(config.Scripts),
 		notesList:     notes.BuildList(config.Notes),
 		envList:       envtab.BuildList(config.Env),
+		aliasList:     aliastab.BuildList(config.Aliases),
 		toolsList:     toolsList,
 		settingsList:  settingsList,
 		featuresList:  featuresList,
@@ -417,6 +424,12 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 
+			if !m.searchMode && m.currentPage == AliasPage && msg.String() == "a" {
+				*m.selected = fmt.Sprintf("%s|%s|", m.getPageName(), aliastab.AddAction)
+				m.quitting = true
+				return m, tea.Quit
+			}
+
 			if !m.searchMode && m.currentPage == ScriptsPage && msg.String() == "e" {
 				items := m.getActiveList()
 				if len(items) == 0 || m.cursor >= len(items) || items[m.cursor].IsDiv {
@@ -609,6 +622,8 @@ func (m MultiPageViewModel) renderEmptyState() string {
 		message = "no scripts yet. press a to add one"
 	} else if m.currentPage == EnvPage {
 		message = "no env vars yet. press a to add one"
+	} else if m.currentPage == AliasPage {
+		message = "no aliases yet. press a to add one"
 	}
 
 	return lipgloss.NewStyle().
@@ -630,7 +645,7 @@ func (m MultiPageViewModel) renderDivider(item utils.ListItem) string {
 
 func (m MultiPageViewModel) renderListItem(item utils.ListItem, index int) string {
 	selected := m.cursor == index
-	settingsLike := m.currentPage == SettingsPage || m.currentPage == FeaturesPage || m.currentPage == EnvPage
+	settingsLike := m.currentPage == SettingsPage || m.currentPage == FeaturesPage || m.currentPage == EnvPage || m.currentPage == AliasPage
 	width := m.contentWidth()
 	titleWidth := m.titleColumnWidth()
 	valueWidth := width - titleWidth - rowChromeWidth
@@ -723,6 +738,8 @@ func (m MultiPageViewModel) renderFooter() string {
 	} else if m.currentPage == ScriptsPage {
 		helpText = "a add  /  e edit  /  dd delete  /  enter run  /  / search  /  left right switch  /  q esc quit"
 	} else if m.currentPage == EnvPage {
+		helpText = "a add  /  dd delete  /  enter toggle  /  / search  /  left right switch  /  q esc quit"
+	} else if m.currentPage == AliasPage {
 		helpText = "a add  /  dd delete  /  enter toggle  /  / search  /  left right switch  /  q esc quit"
 	} else if m.currentPage == ToolsPage {
 		helpText = "/ search  /  up down navigate  /  enter select  /  left right switch  /  q esc quit"
@@ -848,6 +865,8 @@ func (m MultiPageViewModel) getCurrentList() []utils.ListItem {
 		return m.notesList
 	case EnvPage:
 		return m.envList
+	case AliasPage:
+		return m.aliasList
 	case ToolsPage:
 		return m.toolsList
 	case SettingsPage:
@@ -860,7 +879,7 @@ func (m MultiPageViewModel) getCurrentList() []utils.ListItem {
 }
 
 func (m MultiPageViewModel) canDeleteCurrentPage() bool {
-	return m.currentPage == GoToPage || m.currentPage == NotesPage || m.currentPage == ScriptsPage || m.currentPage == EnvPage
+	return m.currentPage == GoToPage || m.currentPage == NotesPage || m.currentPage == ScriptsPage || m.currentPage == EnvPage || m.currentPage == AliasPage
 }
 
 func (m MultiPageViewModel) selectedActionItem() (utils.ListItem, bool) {
@@ -887,6 +906,9 @@ func (m MultiPageViewModel) deleteActionForCurrentPage() string {
 	if m.currentPage == EnvPage {
 		return envtab.DeleteAction
 	}
+	if m.currentPage == AliasPage {
+		return aliastab.DeleteAction
+	}
 	return scripts.DeleteAction
 }
 
@@ -902,6 +924,8 @@ func (m MultiPageViewModel) getPageName() string {
 		return notes.PageName
 	case EnvPage:
 		return envtab.PageName
+	case AliasPage:
+		return aliastab.PageName
 	case ToolsPage:
 		return tools.PageName
 	case SettingsPage:
@@ -929,6 +953,8 @@ func pageNameByType(page PageType) string {
 		return notes.PageName
 	case EnvPage:
 		return envtab.PageName
+	case AliasPage:
+		return aliastab.PageName
 	case ToolsPage:
 		return tools.PageName
 	case SettingsPage:

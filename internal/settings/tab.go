@@ -11,6 +11,7 @@ const (
 	ScriptsFeature       = "scripts"
 	NotesFeature         = "notes"
 	EnvFeature           = "env"
+	AliasFeature         = "alias"
 )
 
 func BuildSettingsList() []utils.ListItem {
@@ -48,6 +49,11 @@ func BuildFeaturesList(features *FeaturesDTO) []utils.ListItem {
 		{
 			T:     EnvFeature,
 			D:     enabledStatus(features.Env),
+			IsDiv: false,
+		},
+		{
+			T:     AliasFeature,
+			D:     enabledStatus(features.Alias),
 			IsDiv: false,
 		},
 	}

@@ -14,10 +14,10 @@ tg() {
     
     if [ -f "$cmd_file" ]; then
         # Read the command
-        local cmd=$(cat "$cmd_file")
+        local cmd=$(command cat "$cmd_file")
         
         # Delete the file immediately
-        rm -f "$cmd_file"
+        command rm -f "$cmd_file"
         
         # Execute the command in current shell
         eval "$cmd"

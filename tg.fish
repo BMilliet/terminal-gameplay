@@ -14,10 +14,10 @@ function tg
     
     if test -f $cmd_file
         # Read the command
-        set -l cmd (cat $cmd_file)
+        set -l cmd (command cat $cmd_file)
         
         # Delete the file immediately
-        rm -f $cmd_file
+        command rm -f $cmd_file
         
         # Execute the command in current shell
         eval $cmd

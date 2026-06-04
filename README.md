@@ -8,6 +8,7 @@ A powerful terminal productivity tool that provides quick access to directories 
 - ⚡ **Scripts**: Create, edit, and execute Lua scripts with confirmation
 - 📝 **Notes**: Keep quick notes and snippets at your fingertips
 - 🔐 **Env**: Activate or deactivate environment variables in your current shell
+- 🔗 **Alias**: Activate or deactivate command aliases in your current shell
 
 ## Installation
 
@@ -52,8 +53,8 @@ tg() {
     TG_SHELL_INTEGRATION=posix $HOME/.terminal-gameplay/terminal-gameplay
     local cmd_file="$HOME/.terminal-gameplay/cmd-exec"
     if [ -f "$cmd_file" ]; then
-        local cmd=$(cat "$cmd_file")
-        rm -f "$cmd_file"
+        local cmd=$(command cat "$cmd_file")
+        command rm -f "$cmd_file"
         eval "$cmd"
     fi
 }
@@ -75,8 +76,8 @@ function tg
     $HOME/.terminal-gameplay/terminal-gameplay
     set -l cmd_file $HOME/.terminal-gameplay/cmd-exec
     if test -f $cmd_file
-        set -l cmd (cat $cmd_file)
-        rm -f $cmd_file
+        set -l cmd (command cat $cmd_file)
+        command rm -f $cmd_file
         eval $cmd
     end
 end
@@ -121,6 +122,11 @@ The `env` feature can be enabled or disabled under `settings` → `features`.
 Disabling it hides the tab and unsets every managed key without deleting the
 saved values or their active/inactive states.
 
+The `alias` tab follows the same workflow. Press `a`, enter the alias word
+(such as `cat`), then enter the command it should execute (such as `bat`).
+Enter toggles the alias, and `dd` removes it. The feature can be enabled or
+disabled under `settings` → `features`.
+
 ### Fuzzy Find Search
 
 Press `/` to activate the fuzzy-find search mode. This feature allows you to quickly filter items by typing:
@@ -153,12 +159,18 @@ On first run, `tg` creates a configuration file at `~/.terminal-gameplay/config.
       "value": "123",
       "active": true
     }
+  },
+  "aliases": {
+    "cat": {
+      "value": "bat",
+      "active": true
+    }
   }
 }
 ```
 
 For manual configuration, the shorthand `"FOO": "123"` is also accepted and is
-treated as active.
+treated as active. The same shorthand is accepted for aliases.
 
 Script descriptions live in `config.json`; the Lua files themselves are stored in `~/.terminal-gameplay/scripts`.
 

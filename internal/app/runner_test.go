@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	aliastab "terminal-gameplay/internal/alias"
 	envtab "terminal-gameplay/internal/env"
 	gototab "terminal-gameplay/internal/goto"
 	"terminal-gameplay/internal/scripts"
@@ -301,8 +302,8 @@ func TestStartGoToWritesCommandAndFrequencyWithMocks(t *testing.T) {
 
 	NewRunner(fm, runtime, views).Start()
 
-	if got := fm.files[fm.CommandExecPath()]; got != "cd /home/test/work" {
-		t.Fatalf("command file = %q, want %q", got, "cd /home/test/work")
+	if got := fm.files[fm.CommandExecPath()]; got != "builtin cd /home/test/work" {
+		t.Fatalf("command file = %q, want %q", got, "builtin cd /home/test/work")
 	}
 	if len(runtime.openedInNvim) != 0 {
 		t.Fatalf("OpenInNvim calls = %#v, want none", runtime.openedInNvim)
@@ -358,13 +359,20 @@ func TestStartWritesFishCommandsWhenFishIntegrationIsSet(t *testing.T) {
 				"OLD": {Value: "456", Active: false},
 			},
 		},
+		Aliases: utils.OrderedAliasMap{
+			Keys: []string{"cat", "ll"},
+			Values: map[string]utils.AliasValue{
+				"cat": {Value: "bat", Active: true},
+				"ll":  {Value: "ls -la", Active: false},
+			},
+		},
 	})
-	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Env: true})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Env: true, Alias: true})
 	views := &fakeViewBuilder{multiPageResults: []string{"invalid"}}
 
 	NewRunner(fm, newFakeRuntime(), views).Start()
 
-	wantCommand := "set -gx FOO '123';\nset -e OLD;"
+	wantCommand := "set -gx FOO '123';\nset -e OLD;\nalias cat 'bat';\nbuiltin functions -e ll;"
 	if got := fm.files[fm.CommandExecPath()]; got != wantCommand {
 		t.Fatalf("command file = %q, want %q", got, wantCommand)
 	}
@@ -584,6 +592,184 @@ func TestStartEnvDeleteUnsetsRemovedKey(t *testing.T) {
 	}
 }
 
+func TestStartAppliesConfiguredAliases(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Aliases: utils.OrderedAliasMap{
+			Keys: []string{"cat", "ll"},
+			Values: map[string]utils.AliasValue{
+				"cat": {Value: "bat", Active: true},
+				"ll":  {Value: "ls -la", Active: false},
+			},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Alias: true})
+	views := &fakeViewBuilder{multiPageResults: []string{"invalid"}}
+
+	NewRunner(fm, newFakeRuntime(), views).Start()
+
+	want := "builtin alias cat='bat';\nbuiltin unalias ll 2>/dev/null || builtin true;"
+	if got := fm.files[fm.CommandExecPath()]; got != want {
+		t.Fatalf("command file = %q, want %q", got, want)
+	}
+}
+
+func TestStartAliasFeatureDisabledRemovesConfiguredAliases(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Aliases: utils.OrderedAliasMap{
+			Keys: []string{"cat"},
+			Values: map[string]utils.AliasValue{
+				"cat": {Value: "bat", Active: true},
+			},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Alias: false})
+	views := &fakeViewBuilder{multiPageResults: []string{"invalid"}}
+
+	NewRunner(fm, newFakeRuntime(), views).Start()
+
+	if got := fm.files[fm.CommandExecPath()]; got != "builtin unalias cat 2>/dev/null || builtin true;" {
+		t.Fatalf("command file = %q, want cat removal", got)
+	}
+}
+
+func TestStartAliasFeatureToggleDisablesAliasesAndPreservesConfig(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Aliases: utils.OrderedAliasMap{
+			Keys: []string{"cat"},
+			Values: map[string]utils.AliasValue{
+				"cat": {Value: "bat", Active: true},
+			},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Alias: true})
+	views := &fakeViewBuilder{
+		multiPageResults: []string{
+			settings.FeaturesPageName + "|" + settings.AliasFeature + "|enabled ✓",
+			"invalid",
+		},
+	}
+
+	NewRunner(fm, newFakeRuntime(), views).Start()
+
+	var savedFeatures settings.FeaturesDTO
+	mustUnmarshalJSON(t, last(t, fm.featuresWrites), &savedFeatures)
+	if savedFeatures.Alias {
+		t.Fatal("saved alias feature = true, want false")
+	}
+	if got := fm.files[fm.CommandExecPath()]; got != "builtin unalias cat 2>/dev/null || builtin true;" {
+		t.Fatalf("command file = %q, want cat removal", got)
+	}
+
+	var config utils.ConfigDTO
+	mustUnmarshalJSON(t, fm.configContent, &config)
+	if got, ok := config.Aliases.Get("cat"); !ok || !got.Active || got.Value != "bat" {
+		t.Fatalf("configured cat alias = %#v, %v; want preserved active value", got, ok)
+	}
+}
+
+func TestStartAliasFeatureToggleEnablesConfiguredAliases(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Aliases: utils.OrderedAliasMap{
+			Keys:   []string{"cat"},
+			Values: map[string]utils.AliasValue{"cat": {Value: "bat", Active: true}},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Alias: false})
+	views := &fakeViewBuilder{
+		multiPageResults: []string{
+			settings.FeaturesPageName + "|" + settings.AliasFeature + "|disabled ✗",
+			"invalid",
+		},
+	}
+
+	NewRunner(fm, newFakeRuntime(), views).Start()
+
+	var savedFeatures settings.FeaturesDTO
+	mustUnmarshalJSON(t, last(t, fm.featuresWrites), &savedFeatures)
+	if !savedFeatures.Alias {
+		t.Fatal("saved alias feature = false, want true")
+	}
+	if got := fm.files[fm.CommandExecPath()]; got != "builtin alias cat='bat';" {
+		t.Fatalf("command file = %q, want cat alias", got)
+	}
+}
+
+func TestStartAliasAddUsesSeparateNameAndCommandInputs(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Alias: true})
+	views := &fakeViewBuilder{
+		multiPageResults: []string{aliastab.PageName + "|" + aliastab.AddAction + "|", "invalid"},
+		textResults:      []string{"cat", "bat"},
+	}
+
+	NewRunner(fm, newFakeRuntime(), views).Start()
+
+	var savedConfig utils.ConfigDTO
+	mustUnmarshalJSON(t, last(t, fm.configWrites), &savedConfig)
+	if got, ok := savedConfig.Aliases.Get("cat"); !ok || got.Value != "bat" || !got.Active {
+		t.Fatalf("saved cat alias = %#v, %v; want active bat alias", got, ok)
+	}
+	if got := fm.files[fm.CommandExecPath()]; got != "builtin alias cat='bat';" {
+		t.Fatalf("command file = %q, want cat alias", got)
+	}
+}
+
+func TestStartAliasEnterTogglesActiveState(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Aliases: utils.OrderedAliasMap{
+			Keys:   []string{"cat"},
+			Values: map[string]utils.AliasValue{"cat": {Value: "bat", Active: true}},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Alias: true})
+	views := &fakeViewBuilder{
+		multiPageResults: []string{aliastab.PageName + "|cat|active ✓", "invalid"},
+	}
+
+	NewRunner(fm, newFakeRuntime(), views).Start()
+
+	var savedConfig utils.ConfigDTO
+	mustUnmarshalJSON(t, last(t, fm.configWrites), &savedConfig)
+	if got, ok := savedConfig.Aliases.Get("cat"); !ok || got.Active {
+		t.Fatalf("saved cat alias = %#v, %v; want inactive", got, ok)
+	}
+	if got := fm.files[fm.CommandExecPath()]; got != "builtin unalias cat 2>/dev/null || builtin true;" {
+		t.Fatalf("command file = %q, want cat removal", got)
+	}
+}
+
+func TestStartAliasDeleteRemovesAliasFromShell(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Aliases: utils.OrderedAliasMap{
+			Keys:   []string{"cat"},
+			Values: map[string]utils.AliasValue{"cat": {Value: "bat", Active: true}},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Alias: true})
+	views := &fakeViewBuilder{
+		multiPageResults: []string{aliastab.PageName + "|" + aliastab.DeleteAction + "|cat", "invalid"},
+		confirmResults:   []bool{true},
+	}
+
+	NewRunner(fm, newFakeRuntime(), views).Start()
+
+	var savedConfig utils.ConfigDTO
+	mustUnmarshalJSON(t, last(t, fm.configWrites), &savedConfig)
+	if _, ok := savedConfig.Aliases.Get("cat"); ok {
+		t.Fatal("saved config still contains deleted cat alias")
+	}
+	if got := fm.files[fm.CommandExecPath()]; got != "builtin unalias cat 2>/dev/null || builtin true;" {
+		t.Fatalf("command file = %q, want cat removal", got)
+	}
+}
+
 func TestStartGoToCombinesActiveEnvWithCdCommand(t *testing.T) {
 	fm := newFakeFileManager()
 	fm.configContent = mustJSON(t, &utils.ConfigDTO{
@@ -606,7 +792,39 @@ func TestStartGoToCombinesActiveEnvWithCdCommand(t *testing.T) {
 
 	NewRunner(fm, runtime, views).Start()
 
-	want := "export FOO='123';\ncd /home/test/work"
+	want := "export FOO='123';\nbuiltin cd /home/test/work"
+	if got := fm.files[fm.CommandExecPath()]; got != want {
+		t.Fatalf("command file = %q, want %q", got, want)
+	}
+}
+
+func TestStartGoToCombinesEnvAliasesAndCdCommand(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		GoTo: utils.OrderedMap{
+			Keys:   []string{"work"},
+			Values: map[string]string{"work": "~/work"},
+		},
+		Env: utils.OrderedEnvMap{
+			Keys:   []string{"FOO"},
+			Values: map[string]utils.EnvValue{"FOO": {Value: "123", Active: true}},
+		},
+		Aliases: utils.OrderedAliasMap{
+			Keys:   []string{"cat"},
+			Values: map[string]utils.AliasValue{"cat": {Value: "bat", Active: true}},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Env: true, Alias: true})
+
+	runtime := newFakeRuntime()
+	runtime.expanded["~/work"] = "/home/test/work"
+	views := &fakeViewBuilder{
+		multiPageResults: []string{gototab.PageName + "|work|~/work"},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	want := "export FOO='123';\nbuiltin alias cat='bat';\nbuiltin cd /home/test/work"
 	if got := fm.files[fm.CommandExecPath()]; got != want {
 		t.Fatalf("command file = %q, want %q", got, want)
 	}

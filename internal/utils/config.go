@@ -7,10 +7,11 @@ import (
 )
 
 type ConfigDTO struct {
-	GoTo    OrderedMap    `json:"goTo"`
-	Scripts OrderedMap    `json:"scripts"`
-	Notes   OrderedMap    `json:"notes"`
-	Env     OrderedEnvMap `json:"env"`
+	GoTo    OrderedMap      `json:"goTo"`
+	Scripts OrderedMap      `json:"scripts"`
+	Notes   OrderedMap      `json:"notes"`
+	Env     OrderedEnvMap   `json:"env"`
+	Aliases OrderedAliasMap `json:"aliases"`
 
 	migratedLegacyCommands bool
 }
@@ -22,11 +23,12 @@ type ConfigItem struct {
 
 func (c *ConfigDTO) UnmarshalJSON(data []byte) error {
 	type configJSON struct {
-		GoTo     OrderedMap    `json:"goTo"`
-		Scripts  OrderedMap    `json:"scripts"`
-		Commands OrderedMap    `json:"commands"`
-		Notes    OrderedMap    `json:"notes"`
-		Env      OrderedEnvMap `json:"env"`
+		GoTo     OrderedMap      `json:"goTo"`
+		Scripts  OrderedMap      `json:"scripts"`
+		Commands OrderedMap      `json:"commands"`
+		Notes    OrderedMap      `json:"notes"`
+		Env      OrderedEnvMap   `json:"env"`
+		Aliases  OrderedAliasMap `json:"aliases"`
 	}
 
 	var parsed configJSON
@@ -38,6 +40,7 @@ func (c *ConfigDTO) UnmarshalJSON(data []byte) error {
 	c.Scripts = parsed.Scripts
 	c.Notes = parsed.Notes
 	c.Env = parsed.Env
+	c.Aliases = parsed.Aliases
 	c.migratedLegacyCommands = false
 
 	if c.Scripts.Len() == 0 && parsed.Commands.Len() > 0 {
@@ -56,6 +59,9 @@ type EnvValue struct {
 	Value  string `json:"value"`
 	Active bool   `json:"active"`
 }
+
+type AliasValue = EnvValue
+type OrderedAliasMap = OrderedEnvMap
 
 func (v *EnvValue) UnmarshalJSON(data []byte) error {
 	var shorthand string

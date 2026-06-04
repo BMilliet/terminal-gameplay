@@ -74,5 +74,8 @@ func GetDefaultConfig() *ConfigDTO {
 		Env: OrderedEnvMap{
 			Values: make(map[string]EnvValue),
 		},
+		Aliases: OrderedAliasMap{
+			Values: make(map[string]AliasValue),
+		},
 	}
 }

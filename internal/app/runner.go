@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	aliastab "terminal-gameplay/internal/alias"
 	envtab "terminal-gameplay/internal/env"
 	"terminal-gameplay/internal/frequent"
 	gototab "terminal-gameplay/internal/goto"
@@ -20,18 +21,20 @@ import (
 )
 
 type Runner struct {
-	fileManager      utils.FileManagerInterface
-	runtime          utils.UtilsInterface
-	viewBuilder      ui.ViewBuilderInterface
-	pendingEnvUnsets map[string]struct{}
+	fileManager          utils.FileManagerInterface
+	runtime              utils.UtilsInterface
+	viewBuilder          ui.ViewBuilderInterface
+	pendingEnvUnsets     map[string]struct{}
+	pendingAliasRemovals map[string]struct{}
 }
 
 func NewRunner(fm utils.FileManagerInterface, runtime utils.UtilsInterface, b ui.ViewBuilderInterface) *Runner {
 	return &Runner{
-		fileManager:      fm,
-		runtime:          runtime,
-		viewBuilder:      b,
-		pendingEnvUnsets: make(map[string]struct{}),
+		fileManager:          fm,
+		runtime:              runtime,
+		viewBuilder:          b,
+		pendingEnvUnsets:     make(map[string]struct{}),
+		pendingAliasRemovals: make(map[string]struct{}),
 	}
 }
 
@@ -99,14 +102,8 @@ func (r *Runner) Start() {
 		}
 	}
 
-	if features.Env {
-		if err := r.syncEnvironment(config); err != nil {
-			r.runtime.HandleError(err, "Failed to apply environment")
-		}
-	} else {
-		if err := r.disableEnvironment(config); err != nil {
-			r.runtime.HandleError(err, "Failed to disable environment")
-		}
+	if err := r.syncShellState(config, features); err != nil {
+		r.runtime.HandleError(err, "Failed to apply shell state")
 	}
 
 	if features.Scripts {
@@ -184,14 +181,13 @@ func (r *Runner) Start() {
 				}
 			case settings.EnvFeature:
 				features.Env = !features.Env
-				if features.Env {
-					if err := r.syncEnvironment(config); err != nil {
-						r.runtime.HandleError(err, "Failed to apply environment")
-					}
-				} else {
-					if err := r.disableEnvironment(config); err != nil {
-						r.runtime.HandleError(err, "Failed to disable environment")
-					}
+				if err := r.syncShellState(config, features); err != nil {
+					r.runtime.HandleError(err, "Failed to apply shell state")
+				}
+			case settings.AliasFeature:
+				features.Alias = !features.Alias
+				if err := r.syncShellState(config, features); err != nil {
+					r.runtime.HandleError(err, "Failed to apply shell state")
 				}
 			}
 
@@ -253,9 +249,9 @@ func (r *Runner) Start() {
 			expandedPath := r.runtime.ExpandPath(value)
 
 			// Write cd command to file
-			command := fmt.Sprintf("cd %s", expandedPath)
+			command := fmt.Sprintf("builtin cd %s", expandedPath)
 
-			if err := r.writeShellCommand(config, command, features.Env); err != nil {
+			if err := r.writeShellCommand(config, command, features); err != nil {
 				r.runtime.HandleError(err, "Failed to write command file")
 			}
 			return
@@ -264,18 +260,38 @@ func (r *Runner) Start() {
 			nextPage = envtab.PageName
 			switch label {
 			case envtab.AddAction:
-				if err := r.createEnv(config); err != nil {
+				if err := r.createEnv(config, features); err != nil {
 					r.runtime.HandleError(err, "Failed to create env")
 				}
 			case envtab.DeleteAction:
 				if r.confirmDelete("env", value) {
-					if err := r.deleteEnv(config, value); err != nil {
+					if err := r.deleteEnv(config, features, value); err != nil {
 						r.runtime.HandleError(err, "Failed to delete env")
 					}
 				}
 			default:
-				if err := r.toggleEnv(config, label); err != nil {
+				if err := r.toggleEnv(config, features, label); err != nil {
 					r.runtime.HandleError(err, "Failed to toggle env")
+				}
+			}
+			continue
+
+		case aliastab.PageName:
+			nextPage = aliastab.PageName
+			switch label {
+			case aliastab.AddAction:
+				if err := r.createAlias(config, features); err != nil {
+					r.runtime.HandleError(err, "Failed to create alias")
+				}
+			case aliastab.DeleteAction:
+				if r.confirmDelete("alias", value) {
+					if err := r.deleteAlias(config, features, value); err != nil {
+						r.runtime.HandleError(err, "Failed to delete alias")
+					}
+				}
+			default:
+				if err := r.toggleAlias(config, features, label); err != nil {
+					r.runtime.HandleError(err, "Failed to toggle alias")
 				}
 			}
 			continue
@@ -607,7 +623,7 @@ func (r *Runner) createScript(config *utils.ConfigDTO) error {
 	return scripts.SyncFiles(r.fileManager, &config.Scripts)
 }
 
-func (r *Runner) createEnv(config *utils.ConfigDTO) error {
+func (r *Runner) createEnv(config *utils.ConfigDTO, features *settings.FeaturesDTO) error {
 	key := r.viewBuilder.NewTextFieldView("Env key", "FOO")
 	if key == utils.ExitSignal {
 		return nil
@@ -633,10 +649,10 @@ func (r *Runner) createEnv(config *utils.ConfigDTO) error {
 	if err := r.writeConfig(config); err != nil {
 		return err
 	}
-	return r.syncEnvironment(config)
+	return r.syncShellState(config, features)
 }
 
-func (r *Runner) toggleEnv(config *utils.ConfigDTO, key string) error {
+func (r *Runner) toggleEnv(config *utils.ConfigDTO, features *settings.FeaturesDTO, key string) error {
 	value, ok := config.Env.Get(key)
 	if !ok {
 		return nil
@@ -647,10 +663,10 @@ func (r *Runner) toggleEnv(config *utils.ConfigDTO, key string) error {
 	if err := r.writeConfig(config); err != nil {
 		return err
 	}
-	return r.syncEnvironment(config)
+	return r.syncShellState(config, features)
 }
 
-func (r *Runner) deleteEnv(config *utils.ConfigDTO, key string) error {
+func (r *Runner) deleteEnv(config *utils.ConfigDTO, features *settings.FeaturesDTO, key string) error {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return nil
@@ -667,7 +683,67 @@ func (r *Runner) deleteEnv(config *utils.ConfigDTO, key string) error {
 	if err := r.writeConfig(config); err != nil {
 		return err
 	}
-	return r.writeShellCommand(config, "", true)
+	return r.syncShellState(config, features)
+}
+
+func (r *Runner) createAlias(config *utils.ConfigDTO, features *settings.FeaturesDTO) error {
+	name := r.viewBuilder.NewTextFieldView("Alias word", "cat")
+	if name == utils.ExitSignal {
+		return nil
+	}
+	name = strings.TrimSpace(name)
+	if err := aliastab.ValidateName(name); err != nil {
+		return err
+	}
+
+	value := r.viewBuilder.NewTextFieldView("Alias command", "bat")
+	if value == utils.ExitSignal {
+		return nil
+	}
+
+	if _, exists := config.Aliases.Get(name); exists {
+		if !r.viewBuilder.NewConfirmView(fmt.Sprintf("Replace alias %q?", name)) {
+			return nil
+		}
+	}
+
+	config.Aliases.Set(name, value, true)
+	delete(r.pendingAliasRemovals, name)
+	if err := r.writeConfig(config); err != nil {
+		return err
+	}
+	return r.syncShellState(config, features)
+}
+
+func (r *Runner) toggleAlias(config *utils.ConfigDTO, features *settings.FeaturesDTO, name string) error {
+	value, ok := config.Aliases.Get(name)
+	if !ok {
+		return nil
+	}
+
+	config.Aliases.Set(name, value.Value, !value.Active)
+	delete(r.pendingAliasRemovals, name)
+	if err := r.writeConfig(config); err != nil {
+		return err
+	}
+	return r.syncShellState(config, features)
+}
+
+func (r *Runner) deleteAlias(config *utils.ConfigDTO, features *settings.FeaturesDTO, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	if _, ok := config.Aliases.Get(name); !ok {
+		return nil
+	}
+
+	config.Aliases.Delete(name)
+	r.pendingAliasRemovals[name] = struct{}{}
+	if err := r.writeConfig(config); err != nil {
+		return err
+	}
+	return r.syncShellState(config, features)
 }
 
 func (r *Runner) editScript(scriptName string) error {
@@ -764,25 +840,24 @@ func (r *Runner) writeFeatures(features *settings.FeaturesDTO) error {
 	return r.fileManager.WriteFeaturesContent(jsonStr)
 }
 
-func (r *Runner) syncEnvironment(config *utils.ConfigDTO) error {
-	if err := envtab.Apply(config.Env, r.runtime); err != nil {
-		return err
+func (r *Runner) syncShellState(config *utils.ConfigDTO, features *settings.FeaturesDTO) error {
+	if features.Env {
+		if err := envtab.Apply(config.Env, r.runtime); err != nil {
+			return err
+		}
+	} else {
+		if err := envtab.Disable(config.Env, r.runtime); err != nil {
+			return err
+		}
 	}
-	return r.writeShellCommand(config, "", true)
+	return r.writeShellCommand(config, "", features)
 }
 
-func (r *Runner) disableEnvironment(config *utils.ConfigDTO) error {
-	if err := envtab.Disable(config.Env, r.runtime); err != nil {
-		return err
-	}
-	return r.writeShellCommand(config, "", false)
-}
-
-func (r *Runner) writeShellCommand(config *utils.ConfigDTO, command string, envEnabled bool) error {
+func (r *Runner) writeShellCommand(config *utils.ConfigDTO, command string, features *settings.FeaturesDTO) error {
 	shell := os.Getenv(envtab.ShellIntegrationEnv)
 	var commands []string
 	var err error
-	if envEnabled {
+	if features.Env {
 		commands, err = envtab.ShellCommands(config.Env, shell)
 	} else {
 		commands, err = envtab.DisableShellCommands(config.Env, shell)
@@ -790,6 +865,17 @@ func (r *Runner) writeShellCommand(config *utils.ConfigDTO, command string, envE
 	if err != nil {
 		return err
 	}
+
+	var aliasCommands []string
+	if features.Alias {
+		aliasCommands, err = aliastab.ShellCommands(config.Aliases, shell)
+	} else {
+		aliasCommands, err = aliastab.DisableShellCommands(config.Aliases, shell)
+	}
+	if err != nil {
+		return err
+	}
+	commands = append(commands, aliasCommands...)
 
 	pendingKeys := make([]string, 0, len(r.pendingEnvUnsets))
 	for key := range r.pendingEnvUnsets {
@@ -804,6 +890,21 @@ func (r *Runner) writeShellCommand(config *utils.ConfigDTO, command string, envE
 			return err
 		}
 		commands = append(commands, unsetCommand)
+	}
+
+	pendingAliases := make([]string, 0, len(r.pendingAliasRemovals))
+	for name := range r.pendingAliasRemovals {
+		if _, exists := config.Aliases.Get(name); !exists {
+			pendingAliases = append(pendingAliases, name)
+		}
+	}
+	sort.Strings(pendingAliases)
+	for _, name := range pendingAliases {
+		removeCommand, err := aliastab.RemoveCommand(name, shell)
+		if err != nil {
+			return err
+		}
+		commands = append(commands, removeCommand)
 	}
 
 	if command != "" {

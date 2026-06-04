@@ -98,3 +98,20 @@ func TestOrderedEnvMapSupportsShorthandAndPreservesStateAndOrder(t *testing.T) {
 		t.Fatalf("json = %s, want %s", encoded, wantJSON)
 	}
 }
+
+func TestOrderedAliasMapSupportsShorthandAndPreservesStateAndOrder(t *testing.T) {
+	var items OrderedAliasMap
+	if err := json.Unmarshal([]byte(`{"cat":"bat","ll":{"value":"ls -la","active":false}}`), &items); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+
+	if want := []string{"cat", "ll"}; !reflect.DeepEqual(items.Keys, want) {
+		t.Fatalf("keys = %#v, want %#v", items.Keys, want)
+	}
+	if got, ok := items.Get("cat"); !ok || got.Value != "bat" || !got.Active {
+		t.Fatalf("cat = %#v, %v; want active shorthand value", got, ok)
+	}
+	if got, ok := items.Get("ll"); !ok || got.Value != "ls -la" || got.Active {
+		t.Fatalf("ll = %#v, %v; want inactive structured value", got, ok)
+	}
+}
