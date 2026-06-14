@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	aliastab "terminal-gameplay/internal/alias"
+	"terminal-gameplay/internal/clipboard"
 	envtab "terminal-gameplay/internal/env"
 	"terminal-gameplay/internal/frequent"
 	gototab "terminal-gameplay/internal/goto"
@@ -180,6 +181,8 @@ func (r *Runner) Start() {
 						r.runtime.HandleError(err, "Failed to initialize notes")
 					}
 				}
+			case settings.ClipboardFeature:
+				features.Clipboard = !features.Clipboard
 			case settings.EnvFeature:
 				features.Env = !features.Env
 				if err := r.syncShellState(config, features); err != nil {
@@ -360,6 +363,36 @@ func (r *Runner) Start() {
 
 			if err := notes.SyncContent(r.fileManager, &config.Notes); err != nil {
 				r.runtime.HandleError(err, "Failed to reload notes")
+			}
+
+		case clipboard.PageName:
+			nextPage = clipboard.PageName
+			switch label {
+			case clipboard.AddAction:
+				if err := r.createClipboardValue(config); err != nil {
+					r.runtime.HandleError(err, "Failed to create clipboard item")
+				}
+				continue
+			case clipboard.DeleteAction:
+				clipboardValue := value
+				if storedValue, ok := config.Clipboard.Get(value); ok {
+					clipboardValue = storedValue
+				}
+				if r.confirmDelete("clipboard", clipboardValue) {
+					if err := r.deleteClipboardValue(config, value); err != nil {
+						r.runtime.HandleError(err, "Failed to delete clipboard item")
+					}
+				}
+				continue
+			default:
+				clipboardValue := value
+				if storedValue, ok := config.Clipboard.Get(label); ok {
+					clipboardValue = storedValue
+				}
+				if err := r.runtime.CopyToClipboard(clipboardValue); err != nil {
+					r.runtime.HandleError(err, "Failed to copy clipboard item")
+				}
+				return
 			}
 		}
 	}
@@ -624,6 +657,17 @@ func (r *Runner) createScript(config *utils.ConfigDTO) error {
 	return scripts.SyncFiles(r.fileManager, &config.Scripts)
 }
 
+func (r *Runner) createClipboardValue(config *utils.ConfigDTO) error {
+	value := r.viewBuilder.NewTextFieldView("Clipboard value", "value")
+	if value == utils.ExitSignal || value == "" {
+		return nil
+	}
+
+	key := clipboard.NextKey(config.Clipboard)
+	config.Clipboard.Set(key, value)
+	return r.writeConfig(config)
+}
+
 func (r *Runner) createEnv(config *utils.ConfigDTO, features *settings.FeaturesDTO) error {
 	key := r.viewBuilder.NewTextFieldView("Env key", "FOO")
 	if key == utils.ExitSignal {
@@ -803,6 +847,16 @@ func (r *Runner) deleteScript(config *utils.ConfigDTO, scriptName string) error 
 	}
 
 	config.Scripts.Delete(scriptName)
+	return r.writeConfig(config)
+}
+
+func (r *Runner) deleteClipboardValue(config *utils.ConfigDTO, key string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil
+	}
+
+	config.Clipboard.Delete(key)
 	return r.writeConfig(config)
 }
 

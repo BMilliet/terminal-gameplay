@@ -8,6 +8,7 @@ import (
 	"time"
 
 	aliastab "terminal-gameplay/internal/alias"
+	"terminal-gameplay/internal/clipboard"
 	envtab "terminal-gameplay/internal/env"
 	"terminal-gameplay/internal/frequent"
 	gototab "terminal-gameplay/internal/goto"
@@ -50,6 +51,7 @@ const (
 	GoToPage
 	ScriptsPage
 	NotesPage
+	ClipboardPage
 	EnvPage
 	AliasPage
 	ToolsPage
@@ -65,6 +67,7 @@ type MultiPageViewModel struct {
 	goToList      []utils.ListItem
 	scriptList    []utils.ListItem
 	notesList     []utils.ListItem
+	clipboardList []utils.ListItem
 	envList       []utils.ListItem
 	aliasList     []utils.ListItem
 	toolsList     []utils.ListItem
@@ -108,6 +111,9 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 	if features.Notes {
 		availPages = append(availPages, NotesPage)
 	}
+	if features.Clipboard {
+		availPages = append(availPages, ClipboardPage)
+	}
 	if features.Env {
 		availPages = append(availPages, EnvPage)
 	}
@@ -144,6 +150,7 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 		goToList:      gototab.BuildList(config.GoTo),
 		scriptList:    scripts.BuildList(config.Scripts),
 		notesList:     notes.BuildList(config.Notes),
+		clipboardList: clipboard.BuildList(config.Clipboard),
 		envList:       envtab.BuildList(config.Env),
 		aliasList:     aliastab.BuildList(config.Aliases),
 		toolsList:     toolsList,
@@ -414,6 +421,12 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 
+			if !m.searchMode && m.currentPage == ClipboardPage && msg.String() == "a" {
+				*m.selected = fmt.Sprintf("%s|%s|", m.getPageName(), clipboard.AddAction)
+				m.quitting = true
+				return m, tea.Quit
+			}
+
 			if !m.searchMode && m.currentPage == ScriptsPage && msg.String() == "a" {
 				*m.selected = fmt.Sprintf("%s|%s|", m.getPageName(), scripts.AddAction)
 				m.quitting = true
@@ -620,6 +633,8 @@ func (m MultiPageViewModel) renderEmptyState() string {
 		message = "no goTo items yet. press a to add current directory"
 	} else if m.currentPage == NotesPage {
 		message = "no notes yet. press a to add one"
+	} else if m.currentPage == ClipboardPage {
+		message = "no clipboard items yet. press a to add one"
 	} else if m.currentPage == ScriptsPage {
 		message = "no scripts yet. press a to add one"
 	} else if m.currentPage == EnvPage {
@@ -646,6 +661,10 @@ func (m MultiPageViewModel) renderDivider(item utils.ListItem) string {
 }
 
 func (m MultiPageViewModel) renderListItem(item utils.ListItem, index int) string {
+	if m.currentPage == ClipboardPage {
+		return m.renderValueOnlyListItem(item, index)
+	}
+
 	selected := m.cursor == index
 	toggleLike := m.currentPage == EnvPage || m.currentPage == AliasPage
 	settingsLike := m.currentPage == SettingsPage || m.currentPage == FeaturesPage || m.currentPage == EnvPage || m.currentPage == AliasPage
@@ -736,6 +755,48 @@ func (m MultiPageViewModel) renderListItem(item utils.ListItem, index int) strin
 	return lipgloss.NewStyle().Width(width).Render(row)
 }
 
+func (m MultiPageViewModel) renderValueOnlyListItem(item utils.ListItem, index int) string {
+	selected := m.cursor == index
+	width := m.contentWidth()
+	textWidth := width - rowChromeWidth
+	if textWidth < 16 {
+		textWidth = 16
+	}
+
+	text := truncateSingleLine(item.D, textWidth)
+	if m.searchMode && m.searchQuery != "" {
+		text = m.highlightMatches(text, m.searchQuery)
+	}
+
+	textColor := m.styles.MutedTitleColor
+	borderColor := m.styles.MutedBorderColor
+	prefix := "  "
+	if selected {
+		textColor = m.styles.SelectedTitleColor
+		borderColor = m.styles.SelectedTitleColor
+		prefix = "▌ "
+	}
+
+	row := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		lipgloss.NewStyle().Foreground(borderColor).Render(prefix),
+		lipgloss.NewStyle().
+			Foreground(textColor).
+			Bold(selected).
+			Width(textWidth).
+			Render(text),
+	)
+
+	if selected {
+		return lipgloss.NewStyle().
+			Background(lipgloss.Color("#313244")).
+			Width(width).
+			Render(row)
+	}
+
+	return lipgloss.NewStyle().Width(width).Render(row)
+}
+
 func (m MultiPageViewModel) renderToggleValue(value, status string, valueColor lipgloss.Color, selected bool, width int) string {
 	statusColor := m.styles.SettingsDisabledColor
 	if strings.EqualFold(status, envtab.ActiveState) {
@@ -799,6 +860,8 @@ func (m MultiPageViewModel) renderFooter() string {
 		helpText = "a add current path  /  dd delete  /  / search  /  left right switch  /  enter select  /  q esc quit"
 	} else if m.currentPage == NotesPage {
 		helpText = "a add  /  dd delete  /  / search  /  up down navigate  /  enter open  /  q esc quit"
+	} else if m.currentPage == ClipboardPage {
+		helpText = "a add  /  dd delete  /  / search  /  up down navigate  /  enter copy  /  q esc quit"
 	} else if m.currentPage == ScriptsPage {
 		helpText = "a add  /  e edit  /  dd delete  /  enter run  /  / search  /  left right switch  /  q esc quit"
 	} else if m.currentPage == EnvPage {
@@ -927,6 +990,8 @@ func (m MultiPageViewModel) getCurrentList() []utils.ListItem {
 		return m.scriptList
 	case NotesPage:
 		return m.notesList
+	case ClipboardPage:
+		return m.clipboardList
 	case EnvPage:
 		return m.envList
 	case AliasPage:
@@ -943,7 +1008,7 @@ func (m MultiPageViewModel) getCurrentList() []utils.ListItem {
 }
 
 func (m MultiPageViewModel) canDeleteCurrentPage() bool {
-	return m.currentPage == GoToPage || m.currentPage == NotesPage || m.currentPage == ScriptsPage || m.currentPage == EnvPage || m.currentPage == AliasPage
+	return m.currentPage == GoToPage || m.currentPage == NotesPage || m.currentPage == ClipboardPage || m.currentPage == ScriptsPage || m.currentPage == EnvPage || m.currentPage == AliasPage
 }
 
 func (m MultiPageViewModel) selectedActionItem() (utils.ListItem, bool) {
@@ -967,6 +1032,9 @@ func (m MultiPageViewModel) deleteActionForCurrentPage() string {
 	if m.currentPage == NotesPage {
 		return notes.DeleteAction
 	}
+	if m.currentPage == ClipboardPage {
+		return clipboard.DeleteAction
+	}
 	if m.currentPage == EnvPage {
 		return envtab.DeleteAction
 	}
@@ -986,6 +1054,8 @@ func (m MultiPageViewModel) getPageName() string {
 		return scripts.PageName
 	case NotesPage:
 		return notes.PageName
+	case ClipboardPage:
+		return clipboard.PageName
 	case EnvPage:
 		return envtab.PageName
 	case AliasPage:
@@ -1015,6 +1085,8 @@ func pageNameByType(page PageType) string {
 		return scripts.PageName
 	case NotesPage:
 		return notes.PageName
+	case ClipboardPage:
+		return clipboard.PageName
 	case EnvPage:
 		return envtab.PageName
 	case AliasPage:

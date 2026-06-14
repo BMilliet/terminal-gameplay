@@ -7,11 +7,12 @@ import (
 )
 
 type ConfigDTO struct {
-	GoTo    OrderedMap      `json:"goTo"`
-	Scripts OrderedMap      `json:"scripts"`
-	Notes   OrderedMap      `json:"notes"`
-	Env     OrderedEnvMap   `json:"env"`
-	Aliases OrderedAliasMap `json:"aliases"`
+	GoTo      OrderedMap      `json:"goTo"`
+	Scripts   OrderedMap      `json:"scripts"`
+	Notes     OrderedMap      `json:"notes"`
+	Clipboard OrderedMap      `json:"clipboard"`
+	Env       OrderedEnvMap   `json:"env"`
+	Aliases   OrderedAliasMap `json:"aliases"`
 
 	migratedLegacyCommands bool
 }
@@ -23,12 +24,13 @@ type ConfigItem struct {
 
 func (c *ConfigDTO) UnmarshalJSON(data []byte) error {
 	type configJSON struct {
-		GoTo     OrderedMap      `json:"goTo"`
-		Scripts  OrderedMap      `json:"scripts"`
-		Commands OrderedMap      `json:"commands"`
-		Notes    OrderedMap      `json:"notes"`
-		Env      OrderedEnvMap   `json:"env"`
-		Aliases  OrderedAliasMap `json:"aliases"`
+		GoTo      OrderedMap      `json:"goTo"`
+		Scripts   OrderedMap      `json:"scripts"`
+		Commands  OrderedMap      `json:"commands"`
+		Notes     OrderedMap      `json:"notes"`
+		Clipboard OrderedMap      `json:"clipboard"`
+		Env       OrderedEnvMap   `json:"env"`
+		Aliases   OrderedAliasMap `json:"aliases"`
 	}
 
 	var parsed configJSON
@@ -39,6 +41,7 @@ func (c *ConfigDTO) UnmarshalJSON(data []byte) error {
 	c.GoTo = parsed.GoTo
 	c.Scripts = parsed.Scripts
 	c.Notes = parsed.Notes
+	c.Clipboard = parsed.Clipboard
 	c.Env = parsed.Env
 	c.Aliases = parsed.Aliases
 	c.migratedLegacyCommands = false

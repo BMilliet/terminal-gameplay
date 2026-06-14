@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	aliastab "terminal-gameplay/internal/alias"
+	"terminal-gameplay/internal/clipboard"
 	envtab "terminal-gameplay/internal/env"
 	"terminal-gameplay/internal/settings"
 	"terminal-gameplay/internal/utils"
@@ -225,6 +226,83 @@ func TestAliasPageIsHiddenWhenFeatureIsDisabled(t *testing.T) {
 	for _, page := range model.availPages {
 		if page == AliasPage {
 			t.Fatal("AliasPage should not be available when alias feature is disabled")
+		}
+	}
+}
+
+func TestClipboardPageShowsValueOnlyAndCopiesOnEnter(t *testing.T) {
+	config := &utils.ConfigDTO{
+		Clipboard: utils.OrderedMap{
+			Keys: []string{"clip42"},
+			Values: map[string]string{
+				"clip42": "secret-token",
+			},
+		},
+	}
+	features := &settings.FeaturesDTO{Clipboard: true}
+	selected := ""
+
+	model := NewMultiPageViewModel(config, features, clipboard.PageName)
+	model.selected = &selected
+
+	if model.currentPage != ClipboardPage {
+		t.Fatalf("current page = %v, want ClipboardPage", model.currentPage)
+	}
+	if got := model.clipboardList[0]; got.T != "clip42" || got.D != "secret-token" {
+		t.Fatalf("clipboard item = %#v, want hidden key and value", got)
+	}
+	view := model.View()
+	if !strings.Contains(view, "secret-token") {
+		t.Fatalf("clipboard view does not show value: %q", view)
+	}
+	if strings.Contains(view, "clip42") {
+		t.Fatalf("clipboard view should not expose internal key: %q", view)
+	}
+
+	model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if selected != clipboard.PageName+"|clip42|secret-token" {
+		t.Fatalf("selected = %q, want clipboard copy result", selected)
+	}
+}
+
+func TestClipboardPageAddShortcutReturnsAddAction(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{Clipboard: true}, clipboard.PageName)
+	selected := ""
+	model.selected = &selected
+
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+
+	if selected != clipboard.PageName+"|"+clipboard.AddAction+"|" {
+		t.Fatalf("selected = %q, want clipboard add action", selected)
+	}
+}
+
+func TestClipboardPageDeleteShortcutReturnsDeleteActionWithHiddenKey(t *testing.T) {
+	config := &utils.ConfigDTO{
+		Clipboard: utils.OrderedMap{
+			Keys:   []string{"clip42"},
+			Values: map[string]string{"clip42": "secret-token"},
+		},
+	}
+	model := NewMultiPageViewModel(config, &settings.FeaturesDTO{Clipboard: true}, clipboard.PageName)
+	selected := ""
+	model.selected = &selected
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	model = updated.(MultiPageViewModel)
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+
+	if selected != clipboard.PageName+"|"+clipboard.DeleteAction+"|clip42" {
+		t.Fatalf("selected = %q, want clipboard delete action", selected)
+	}
+}
+
+func TestClipboardPageIsHiddenWhenFeatureIsDisabled(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{Clipboard: false})
+
+	for _, page := range model.availPages {
+		if page == ClipboardPage {
+			t.Fatal("ClipboardPage should not be available when clipboard feature is disabled")
 		}
 	}
 }

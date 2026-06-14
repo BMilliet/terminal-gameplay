@@ -10,6 +10,7 @@ const (
 	FrequentGoToFeature  = "frequent_goTo"
 	ScriptsFeature       = "scripts"
 	NotesFeature         = "notes"
+	ClipboardFeature     = "clipboard"
 	EnvFeature           = "env"
 	AliasFeature         = "alias"
 )
@@ -44,6 +45,11 @@ func BuildFeaturesList(features *FeaturesDTO) []utils.ListItem {
 		{
 			T:     NotesFeature,
 			D:     enabledStatus(features.Notes),
+			IsDiv: false,
+		},
+		{
+			T:     ClipboardFeature,
+			D:     enabledStatus(features.Clipboard),
 			IsDiv: false,
 		},
 		{

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	aliastab "terminal-gameplay/internal/alias"
+	"terminal-gameplay/internal/clipboard"
 	envtab "terminal-gameplay/internal/env"
 	gototab "terminal-gameplay/internal/goto"
 	"terminal-gameplay/internal/scripts"
@@ -140,6 +141,7 @@ type fakeRuntime struct {
 	validatedInputs []string
 	openedInNvim    []string
 	ranLua          []string
+	copiedClipboard []string
 	changedDirs     []string
 	env             map[string]string
 	unsetEnv        []string
@@ -186,7 +188,8 @@ func (f *fakeRuntime) ExecuteCommand(command string) error {
 }
 
 func (f *fakeRuntime) CopyToClipboard(text string) error {
-	panic("CopyToClipboard should not be called by these unit tests")
+	f.copiedClipboard = append(f.copiedClipboard, text)
+	return nil
 }
 
 func (f *fakeRuntime) OpenInNvim(filePath string) error {
@@ -949,6 +952,74 @@ func TestStartAddNoteCreatesUnderscoreFileFromName(t *testing.T) {
 	}
 	if _, ok := savedConfig.Notes.Get("test file name"); ok {
 		t.Fatalf("saved note key should not use display name: %#v", savedConfig.Notes.Keys)
+	}
+}
+
+func TestStartClipboardAddUsesSingleValueInput(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Clipboard: true})
+
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{clipboard.PageName + "|" + clipboard.AddAction + "|", "invalid"},
+		textResults:      []string{"secret-token"},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	var savedConfig utils.ConfigDTO
+	mustUnmarshalJSON(t, last(t, fm.configWrites), &savedConfig)
+	if got, ok := savedConfig.Clipboard.Get("clip"); !ok || got != "secret-token" {
+		t.Fatalf("saved clipboard clip = %q, %v; want secret-token, true", got, ok)
+	}
+	if len(runtime.copiedClipboard) != 0 {
+		t.Fatalf("CopyToClipboard calls = %#v, want none while adding", runtime.copiedClipboard)
+	}
+}
+
+func TestStartClipboardEnterCopiesSelectedValue(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Clipboard: utils.OrderedMap{
+			Keys:   []string{"clip"},
+			Values: map[string]string{"clip": "secret-token"},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Clipboard: true})
+
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{clipboard.PageName + "|clip|secret-token"},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	if got := runtime.copiedClipboard; !reflect.DeepEqual(got, []string{"secret-token"}) {
+		t.Fatalf("CopyToClipboard calls = %#v, want selected value", got)
+	}
+}
+
+func TestStartClipboardDeleteRemovesHiddenKey(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{
+		Clipboard: utils.OrderedMap{
+			Keys:   []string{"clip"},
+			Values: map[string]string{"clip": "secret-token"},
+		},
+	})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{Clipboard: true})
+	views := &fakeViewBuilder{
+		multiPageResults: []string{clipboard.PageName + "|" + clipboard.DeleteAction + "|clip", "invalid"},
+		confirmResults:   []bool{true},
+	}
+
+	NewRunner(fm, newFakeRuntime(), views).Start()
+
+	var savedConfig utils.ConfigDTO
+	mustUnmarshalJSON(t, last(t, fm.configWrites), &savedConfig)
+	if _, ok := savedConfig.Clipboard.Get("clip"); ok {
+		t.Fatal("saved config still contains deleted clipboard item")
 	}
 }
 

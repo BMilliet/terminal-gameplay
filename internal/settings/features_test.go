@@ -21,6 +21,9 @@ func TestFeaturesUnmarshalAppliesDefaultsForMissingFlags(t *testing.T) {
 	if !features.Notes {
 		t.Fatalf("Notes = false, want default true")
 	}
+	if !features.Clipboard {
+		t.Fatalf("Clipboard = false, want default true")
+	}
 	if !features.Env {
 		t.Fatalf("Env = false, want default true")
 	}
@@ -47,14 +50,15 @@ func TestBuildFeaturesListReflectsEnabledStatus(t *testing.T) {
 		FrequentGoTo: true,
 		Scripts:      false,
 		Notes:        true,
+		Clipboard:    true,
 		Env:          false,
 		Alias:        true,
 	}
 
 	got := BuildFeaturesList(features)
 
-	want := []string{"enabled ✓", "disabled ✗", "enabled ✓", "disabled ✗", "enabled ✓"}
-	statuses := []string{got[0].D, got[1].D, got[2].D, got[3].D, got[4].D}
+	want := []string{"enabled ✓", "disabled ✗", "enabled ✓", "enabled ✓", "disabled ✗", "enabled ✓"}
+	statuses := []string{got[0].D, got[1].D, got[2].D, got[3].D, got[4].D, got[5].D}
 	if !reflect.DeepEqual(statuses, want) {
 		t.Fatalf("feature statuses = %#v, want %#v", statuses, want)
 	}
