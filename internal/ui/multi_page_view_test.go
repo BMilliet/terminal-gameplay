@@ -9,11 +9,20 @@ import (
 	envtab "terminal-gameplay/internal/env"
 	"terminal-gameplay/internal/settings"
 	"terminal-gameplay/internal/utils"
+	"terminal-gameplay/internal/version"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )
+
+func TestHeaderShowsAppVersion(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+
+	if view := model.View(); !strings.Contains(view, "v"+version.AppVersion) {
+		t.Fatalf("view does not show app version %q: %q", version.AppVersion, view)
+	}
+}
 
 func TestEnvPageShowsKeyValueAndStatusAndTogglesOnEnter(t *testing.T) {
 	config := &utils.ConfigDTO{

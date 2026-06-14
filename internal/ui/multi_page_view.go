@@ -17,6 +17,7 @@ import (
 	"terminal-gameplay/internal/settings"
 	"terminal-gameplay/internal/tools"
 	"terminal-gameplay/internal/utils"
+	"terminal-gameplay/internal/version"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -527,6 +528,10 @@ func (m MultiPageViewModel) renderHeader() string {
 
 	wordmark := m.renderGradientBadge(" tg ", 0)
 	context := m.renderGradientText("terminal-gameplay", 10, true)
+	versionLabel := lipgloss.NewStyle().
+		Foreground(m.styles.FooterColor).
+		Faint(true).
+		Render(" v" + version.AppVersion)
 	page := m.renderGradientText(m.getPageName(), 44, false)
 
 	meta := lipgloss.JoinHorizontal(
@@ -534,6 +539,7 @@ func (m MultiPageViewModel) renderHeader() string {
 		wordmark,
 		" ",
 		context,
+		versionLabel,
 		m.styles.Text(" / ", m.styles.DividerColor),
 		page,
 	)
