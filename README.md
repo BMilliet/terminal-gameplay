@@ -2,7 +2,7 @@
 
 A powerful terminal productivity tool that provides quick access to directories (goTo), Lua scripts, and notes through an intuitive TUI (Terminal User Interface).
 
-<img src="./gif/tg_1.gif" alt="gif" width="600">
+<img src="./gif/tg_1.gif" alt="gif" width="750">
 
 ## Features
 
