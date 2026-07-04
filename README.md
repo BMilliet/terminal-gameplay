@@ -2,6 +2,8 @@
 
 A powerful terminal productivity tool that provides quick access to directories (goTo), Lua scripts, and notes through an intuitive TUI (Terminal User Interface).
 
+![Demo](./gif/tg_1.gif)
+
 ## Features
 
 - 🚀 **GoTo**: Quickly navigate to your frequently used directories
