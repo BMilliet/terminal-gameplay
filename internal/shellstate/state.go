@@ -74,6 +74,15 @@ func Commands(config *utils.ConfigDTO, features *settings.FeaturesDTO, shell str
 	return append(commands, aliasCommands...), nil
 }
 
+func ChangeDirectoryCommand(path, shell string) string {
+	if shell == envtab.FishShell {
+		replacer := strings.NewReplacer(`\`, `\\`, `'`, `\'`)
+		return fmt.Sprintf("builtin cd '%s'", replacer.Replace(path))
+	}
+
+	return fmt.Sprintf("builtin cd '%s'", strings.ReplaceAll(path, "'", "'\"'\"'"))
+}
+
 func loadFeatures(fileManager FileManager) (*settings.FeaturesDTO, error) {
 	content, err := fileManager.GetFeaturesContent()
 	if err != nil {

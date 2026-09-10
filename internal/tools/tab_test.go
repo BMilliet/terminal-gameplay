@@ -2,19 +2,22 @@ package tools
 
 import "testing"
 
-func TestBuildListContainsSearchReplaceTool(t *testing.T) {
+func TestBuildListContainsFileSearchAndSearchReplaceTools(t *testing.T) {
 	got := BuildList()
-	if len(got) != 1 {
-		t.Fatalf("BuildList() length = %d, want 1", len(got))
+	if len(got) != 3 {
+		t.Fatalf("BuildList() length = %d, want 3", len(got))
 	}
 
-	if got[0].T != SearchReplaceAction {
-		t.Fatalf("tool title = %q, want %q", got[0].T, SearchReplaceAction)
-	}
-	if got[0].D == "" {
-		t.Fatal("tool description should not be empty")
-	}
-	if got[0].IsDiv {
-		t.Fatal("search/replace should be selectable, got divider")
+	want := []string{FuzzySearchAction, WorkspaceFuzzySearchAction, SearchReplaceAction}
+	for index, title := range want {
+		if got[index].T != title {
+			t.Fatalf("tool %d title = %q, want %q", index, got[index].T, title)
+		}
+		if got[index].D == "" {
+			t.Fatalf("tool %q description should not be empty", title)
+		}
+		if got[index].IsDiv {
+			t.Fatalf("tool %q should be selectable, got divider", title)
+		}
 	}
 }

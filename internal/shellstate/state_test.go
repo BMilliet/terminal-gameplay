@@ -152,3 +152,14 @@ func TestCommandsDisablesManagedStateWhenFeaturesAreDisabled(t *testing.T) {
 		t.Fatalf("Commands() = %#v, want %#v", got, want)
 	}
 }
+
+func TestChangeDirectoryCommandQuotesPathsForSupportedShells(t *testing.T) {
+	path := "/tmp/user's workspace"
+
+	if got, want := ChangeDirectoryCommand(path, ""), `builtin cd '/tmp/user'"'"'s workspace'`; got != want {
+		t.Fatalf("POSIX ChangeDirectoryCommand() = %q, want %q", got, want)
+	}
+	if got, want := ChangeDirectoryCommand(path, envtab.FishShell), `builtin cd '/tmp/user\'s workspace'`; got != want {
+		t.Fatalf("Fish ChangeDirectoryCommand() = %q, want %q", got, want)
+	}
+}

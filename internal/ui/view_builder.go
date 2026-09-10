@@ -7,6 +7,7 @@ import (
 
 type ViewBuilderInterface interface {
 	NewListView(title string, op []utils.ListItem, height int) utils.ListItem
+	NewFuzzySearchView(title string, op []utils.ListItem, height int) utils.ListItem
 	NewConfirmView(title string) bool
 	NewSectionSelectView(title string, sections []utils.ListItem) utils.ListItem
 	NewTextFieldView(title, placeHolder string) string
@@ -23,6 +24,12 @@ func NewViewBuilder() *ViewBuilder {
 func (b *ViewBuilder) NewListView(title string, op []utils.ListItem, height int) utils.ListItem {
 	endValue := utils.ListItem{}
 	ListView(title, op, height, &endValue)
+	return endValue
+}
+
+func (b *ViewBuilder) NewFuzzySearchView(title string, op []utils.ListItem, height int) utils.ListItem {
+	endValue := utils.ListItem{}
+	FuzzySearchView(title, op, height, &endValue)
 	return endValue
 }
 

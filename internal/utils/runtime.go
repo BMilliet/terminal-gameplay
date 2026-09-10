@@ -19,6 +19,7 @@ type UtilsInterface interface {
 	ExecuteCommand(command string) error
 	CopyToClipboard(text string) error
 	OpenInNvim(filePath string) error
+	OpenInEditor(filePath string) error
 	RunLuaScript(filePath string) error
 	ChangeDirectory(path string) error
 	SetEnv(key, value string) error
@@ -115,6 +116,26 @@ func (u *Utils) OpenInNvim(filePath string) error {
 	}
 
 	cmd := exec.Command(editor, filePath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
+}
+
+func (u *Utils) OpenInEditor(filePath string) error {
+	editorCommand := strings.TrimSpace(os.Getenv("EDITOR"))
+	if editorCommand == "" {
+		editorCommand = "nvim"
+	}
+
+	parts := strings.Fields(editorCommand)
+	editor, err := exec.LookPath(parts[0])
+	if err != nil {
+		return fmt.Errorf("editor %q not found in PATH", parts[0])
+	}
+
+	args := append(parts[1:], filePath)
+	cmd := exec.Command(editor, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin

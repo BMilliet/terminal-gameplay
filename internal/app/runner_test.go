@@ -140,6 +140,7 @@ type fakeRuntime struct {
 	contracted      map[string]string
 	validatedInputs []string
 	openedInNvim    []string
+	openedInEditor  []string
 	ranLua          []string
 	copiedClipboard []string
 	changedDirs     []string
@@ -197,6 +198,11 @@ func (f *fakeRuntime) OpenInNvim(filePath string) error {
 	return nil
 }
 
+func (f *fakeRuntime) OpenInEditor(filePath string) error {
+	f.openedInEditor = append(f.openedInEditor, filePath)
+	return nil
+}
+
 func (f *fakeRuntime) RunLuaScript(filePath string) error {
 	f.ranLua = append(f.ranLua, filePath)
 	return nil
@@ -224,10 +230,23 @@ type fakeViewBuilder struct {
 	confirmResults           []bool
 	sectionResults           []utils.ListItem
 	searchReplaceFileResults []utils.ListItem
+	fuzzySearchResults       []utils.ListItem
+	fuzzySearchItems         [][]utils.ListItem
 }
 
 func (f *fakeViewBuilder) NewListView(title string, op []utils.ListItem, height int) utils.ListItem {
 	return utils.ListItem{}
+}
+
+func (f *fakeViewBuilder) NewFuzzySearchView(title string, op []utils.ListItem, height int) utils.ListItem {
+	f.fuzzySearchItems = append(f.fuzzySearchItems, op)
+	if len(f.fuzzySearchResults) == 0 {
+		return utils.ListItem{T: utils.ExitSignal}
+	}
+
+	result := f.fuzzySearchResults[0]
+	f.fuzzySearchResults = f.fuzzySearchResults[1:]
+	return result
 }
 
 func (f *fakeViewBuilder) NewConfirmView(title string) bool {
@@ -305,8 +324,8 @@ func TestStartGoToWritesCommandAndFrequencyWithMocks(t *testing.T) {
 
 	NewRunner(fm, runtime, views).Start()
 
-	if got := fm.files[fm.CommandExecPath()]; got != "builtin cd /home/test/work" {
-		t.Fatalf("command file = %q, want %q", got, "builtin cd /home/test/work")
+	if got := fm.files[fm.CommandExecPath()]; got != "builtin cd '/home/test/work'" {
+		t.Fatalf("command file = %q, want %q", got, "builtin cd '/home/test/work'")
 	}
 	if len(runtime.openedInNvim) != 0 {
 		t.Fatalf("OpenInNvim calls = %#v, want none", runtime.openedInNvim)
@@ -795,7 +814,7 @@ func TestStartGoToCombinesActiveEnvWithCdCommand(t *testing.T) {
 
 	NewRunner(fm, runtime, views).Start()
 
-	want := "export FOO='123';\nbuiltin cd /home/test/work"
+	want := "export FOO='123';\nbuiltin cd '/home/test/work'"
 	if got := fm.files[fm.CommandExecPath()]; got != want {
 		t.Fatalf("command file = %q, want %q", got, want)
 	}
@@ -827,7 +846,7 @@ func TestStartGoToCombinesEnvAliasesAndCdCommand(t *testing.T) {
 
 	NewRunner(fm, runtime, views).Start()
 
-	want := "export FOO='123';\nbuiltin alias cat='bat';\nbuiltin cd /home/test/work"
+	want := "export FOO='123';\nbuiltin alias cat='bat';\nbuiltin cd '/home/test/work'"
 	if got := fm.files[fm.CommandExecPath()]; got != want {
 		t.Fatalf("command file = %q, want %q", got, want)
 	}
@@ -1208,6 +1227,96 @@ func TestStartSearchReplaceEnterOnReplacedFileRestoresOriginalContent(t *testing
 	}
 }
 
+func TestStartFuzzySearchOpensSelectedFileInConfiguredEditor(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "source", "main.go")
+	mustWriteFileInDir(t, file, "package main")
+
+	fm := newFakeFileManager()
+	fm.currentPath = root
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{
+			toolstab.PageName + "|" + toolstab.FuzzySearchAction + "|find paths",
+			"invalid",
+		},
+		fuzzySearchResults: []utils.ListItem{{T: "source/main.go", D: file}},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	if got, want := runtime.openedInEditor, []string{file}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("OpenInEditor calls = %#v, want %#v", got, want)
+	}
+	if len(views.fuzzySearchItems) != 1 || !hasListItemPath(views.fuzzySearchItems[0], file) {
+		t.Fatalf("fuzzy search items = %#v, want selected file", views.fuzzySearchItems)
+	}
+}
+
+func TestStartFuzzySearchChangesCurrentShellDirectory(t *testing.T) {
+	root := t.TempDir()
+	directory := filepath.Join(root, "project with spaces")
+	if err := os.Mkdir(directory, 0755); err != nil {
+		t.Fatalf("create fixture directory: %v", err)
+	}
+
+	fm := newFakeFileManager()
+	fm.currentPath = root
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+	views := &fakeViewBuilder{
+		multiPageResults:   []string{toolstab.PageName + "|" + toolstab.FuzzySearchAction + "|find paths"},
+		fuzzySearchResults: []utils.ListItem{{T: "project with spaces/", D: directory}},
+	}
+
+	NewRunner(fm, newFakeRuntime(), views).Start()
+
+	want := "builtin cd '" + directory + "'"
+	if got := fm.files[fm.CommandExecPath()]; got != want {
+		t.Fatalf("command file = %q, want %q", got, want)
+	}
+}
+
+func TestStartWorkspaceFuzzySearchUsesWorkspaceEnvironmentRoot(t *testing.T) {
+	workspace := t.TempDir()
+	file := filepath.Join(workspace, "project", "README.md")
+	mustWriteFileInDir(t, file, "project")
+	t.Setenv(toolstab.WorkspaceEnv, workspace)
+
+	fm := newFakeFileManager()
+	fm.currentPath = t.TempDir()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{
+			toolstab.PageName + "|" + toolstab.WorkspaceFuzzySearchAction + "|find workspace paths",
+			"invalid",
+		},
+		fuzzySearchResults: []utils.ListItem{{T: "project/README.md", D: file}},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	if got, want := runtime.openedInEditor, []string{file}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("OpenInEditor calls = %#v, want %#v", got, want)
+	}
+	if len(views.fuzzySearchItems) != 1 || !hasListItemPath(views.fuzzySearchItems[0], file) {
+		t.Fatalf("workspace fuzzy search items = %#v, want workspace file", views.fuzzySearchItems)
+	}
+}
+
+func hasListItemPath(items []utils.ListItem, path string) bool {
+	for _, item := range items {
+		if item.D == path {
+			return true
+		}
+	}
+	return false
+}
+
 func mustJSON(t *testing.T, value any) string {
 	t.Helper()
 
@@ -1265,6 +1374,14 @@ func mustWriteFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
+}
+
+func mustWriteFileInDir(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("create parent directory for %s: %v", path, err)
+	}
+	mustWriteFile(t, path, content)
 }
 
 func mustReadFile(t *testing.T, path string) string {

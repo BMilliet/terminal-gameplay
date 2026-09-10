@@ -207,6 +207,41 @@ func (r *Runner) Start() {
 
 		case toolstab.PageName:
 			switch label {
+			case toolstab.FuzzySearchAction:
+				nextPage = toolstab.PageName
+				root, err := r.fileManager.GetCurrentPath()
+				if err != nil {
+					r.runtime.HandleError(err, "Failed to get current directory")
+				}
+				changedDirectory, err := r.fuzzySearch(config, features, root, toolstab.FuzzySearchAction)
+				if err != nil {
+					fmt.Println(styles.Text(err.Error(), styles.ErrorColor))
+					continue
+				}
+				if changedDirectory {
+					return
+				}
+				continue
+
+			case toolstab.WorkspaceFuzzySearchAction:
+				nextPage = toolstab.PageName
+				workspace := strings.TrimSpace(os.Getenv(toolstab.WorkspaceEnv))
+				if workspace == "" {
+					fmt.Println(styles.Text("WORKSPACE is not set; workspace fuzzy search aborted", styles.ErrorColor))
+					continue
+				}
+				workspace = os.ExpandEnv(workspace)
+				workspace = r.runtime.ExpandPath(workspace)
+				changedDirectory, err := r.fuzzySearch(config, features, workspace, toolstab.WorkspaceFuzzySearchAction)
+				if err != nil {
+					fmt.Println(styles.Text(err.Error(), styles.ErrorColor))
+					continue
+				}
+				if changedDirectory {
+					return
+				}
+				continue
+
 			case toolstab.SearchReplaceAction:
 				nextPage = toolstab.PageName
 				if err := r.searchReplace(styles); err != nil {
@@ -253,7 +288,7 @@ func (r *Runner) Start() {
 			expandedPath := r.runtime.ExpandPath(value)
 
 			// Write cd command to file
-			command := fmt.Sprintf("builtin cd %s", expandedPath)
+			command := shellstate.ChangeDirectoryCommand(expandedPath, os.Getenv(envtab.ShellIntegrationEnv))
 
 			if err := r.writeShellCommand(config, command, features); err != nil {
 				r.runtime.HandleError(err, "Failed to write command file")
@@ -396,6 +431,46 @@ func (r *Runner) Start() {
 			}
 		}
 	}
+}
+
+func (r *Runner) fuzzySearch(config *utils.ConfigDTO, features *settings.FeaturesDTO, root, title string) (bool, error) {
+	items, err := toolstab.FindPathItems(root)
+	if err != nil {
+		return false, err
+	}
+	if len(items) == 0 {
+		return false, fmt.Errorf("no files or directories found under %s", root)
+	}
+
+	selected := r.viewBuilder.NewFuzzySearchView(title, items, 20)
+	if selected.T == utils.ExitSignal {
+		return false, nil
+	}
+
+	path := selected.D
+	if path == "" {
+		path = selected.T
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, fmt.Errorf("open selected path %q: %w", path, err)
+	}
+
+	if info.IsDir() {
+		command := shellstate.ChangeDirectoryCommand(path, os.Getenv(envtab.ShellIntegrationEnv))
+		if err := r.writeShellCommand(config, command, features); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("selected path is not a file or directory: %s", path)
+	}
+
+	if err := r.runtime.OpenInEditor(path); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func (r *Runner) searchReplace(styles *ui.Styles) error {

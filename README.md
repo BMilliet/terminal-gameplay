@@ -11,6 +11,7 @@ A powerful terminal productivity tool that provides quick access to directories,
 - 📝 **Notes**: Keep quick notes and snippets at your fingertips
 - 🔐 **Env**: Activate or deactivate environment variables in your current shell
 - 🔗 **Alias**: Activate or deactivate command aliases in your current shell
+- 🔎 **Fuzzy Search**: Find files and directories under the current directory or `$WORKSPACE` without an external `fzf` dependency
 
 ## Installation
 
@@ -139,6 +140,24 @@ Press `/` to activate the fuzzy-find search mode. This feature allows you to qui
 - **Select from results**: Use arrow keys to navigate filtered results and Enter to select
 
 The fuzzy-find searches through both the item title/label and its value, making it easy to find what you need quickly.
+
+### File and Workspace Fuzzy Search
+
+The `tools` page includes two file-system search actions:
+
+- **fuzzy search** scans the current directory
+- **workspace fuzzy search** scans the directory configured by the `WORKSPACE` environment variable
+
+Both actions are ready for typing as soon as they open. The scan and fuzzy
+selection run in Go and skip `.git`, `.build`, `node_modules`, `.next`, `dist`,
+`build`, `Pods`, `.dart_tool`, `vendor`, and `target` directories. Selecting a
+directory changes the current shell directory; selecting a file opens it with
+`$EDITOR`, falling back to `nvim` when `EDITOR` is unset.
+
+Use only `↑`/`↓` to navigate the results without leaving the filter input. All
+printable characters, including `h`, `j`, `k`, and `l`, remain part of the
+search text. Use `←`/`→` to navigate result pages. You can continue typing
+immediately after moving the selection or changing pages.
 
 ### Configuration File
 
