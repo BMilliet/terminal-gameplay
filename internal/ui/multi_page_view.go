@@ -45,6 +45,13 @@ var headerGradientPalette = []string{
 
 type headerTickMsg time.Time
 
+type MenuType int
+
+const (
+	QuickMenu MenuType = iota
+	FileMenu
+)
+
 type PageType int
 
 const (
@@ -63,6 +70,7 @@ const (
 type MultiPageViewModel struct {
 	config        *utils.ConfigDTO
 	features      *settings.FeaturesDTO
+	currentMenu   MenuType
 	currentPage   PageType
 	frequentList  []utils.ListItem
 	goToList      []utils.ListItem
@@ -146,6 +154,7 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 	m := MultiPageViewModel{
 		config:        config,
 		features:      features,
+		currentMenu:   QuickMenu,
 		currentPage:   currentPage,
 		frequentList:  frequentList,
 		goToList:      gototab.BuildList(config.GoTo),
@@ -197,6 +206,23 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickHeader()
 
 	case tea.KeyMsg:
+		if m.currentMenu == FileMenu {
+			switch msg.String() {
+			case "ctrl+c", "esc", "q":
+				*m.selected = utils.ExitSignal
+				m.quitting = true
+				return m, tea.Quit
+			default:
+				return m, nil
+			}
+		}
+
+		if !m.searchMode && msg.String() == "f" {
+			m.pendingDelete = false
+			m.currentMenu = FileMenu
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "ctrl+c":
 			*m.selected = utils.ExitSignal
@@ -478,6 +504,9 @@ func (m MultiPageViewModel) View() string {
 	if m.quitting {
 		return ""
 	}
+	if m.currentMenu == FileMenu {
+		return m.renderHeader()
+	}
 
 	var b strings.Builder
 	b.WriteString(m.renderHeader())
@@ -532,7 +561,6 @@ func (m MultiPageViewModel) renderHeader() string {
 		Foreground(m.styles.FooterColor).
 		Faint(true).
 		Render(" v" + version.AppVersion)
-	page := m.renderGradientText(m.getPageName(), 44, false)
 
 	meta := lipgloss.JoinHorizontal(
 		lipgloss.Center,
@@ -540,12 +568,18 @@ func (m MultiPageViewModel) renderHeader() string {
 		" ",
 		context,
 		versionLabel,
-		m.styles.Text(" / ", m.styles.DividerColor),
-		page,
 	)
 
 	b.WriteString("\n")
 	b.WriteString(meta)
+	if m.currentMenu == FileMenu {
+		b.WriteString("\n\n")
+		return b.String()
+	}
+
+	page := m.renderGradientText(m.getPageName(), 44, false)
+	b.WriteString(m.styles.Text(" / ", m.styles.DividerColor))
+	b.WriteString(page)
 	b.WriteString("\n")
 	b.WriteString(m.renderTabs())
 	b.WriteString("\n\n")

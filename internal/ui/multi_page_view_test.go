@@ -24,6 +24,32 @@ func TestHeaderShowsAppVersion(t *testing.T) {
 	}
 }
 
+func TestFKeyOpensFileMenuWithHeaderWithoutQuickMenuPages(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	model = updated.(MultiPageViewModel)
+
+	if model.currentMenu != FileMenu {
+		t.Fatalf("current menu = %v, want FileMenu", model.currentMenu)
+	}
+	view := model.View()
+	if !strings.Contains(view, "terminal-gameplay") || !strings.Contains(view, "v"+version.AppVersion) {
+		t.Fatalf("file menu does not show the standard app header: %q", view)
+	}
+	for _, page := range model.availPages {
+		if pageName := model.getPageNameByType(page); strings.Contains(view, pageName) {
+			t.Fatalf("file menu header contains quick-menu page %q: %q", pageName, view)
+		}
+	}
+}
+
 func TestEnvPageShowsKeyValueAndStatusAndTogglesOnEnter(t *testing.T) {
 	config := &utils.ConfigDTO{
 		Env: utils.OrderedEnvMap{

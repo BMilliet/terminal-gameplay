@@ -114,7 +114,13 @@ This will launch the interactive TUI where you can:
 1. **Navigate** using arrow keys or `j`/`k`
 2. **Switch pages** using left/right arrows or `h`/`l`
 3. **Search** by pressing `/` to activate fuzzy-find mode
-4. **Select** an item by pressing Enter
+4. **Open the file menu** by pressing `f`
+5. **Select** an item by pressing Enter
+
+The existing pages and lists form the **quick-menu**, which is shown when `tg`
+starts. Pressing `f` from the quick-menu opens the file menu. The file menu is
+currently an empty placeholder below the application header for future
+file-management features. Its header does not show the quick-menu pages.
 
 In the `env` tab, press `a`, enter the key (such as `FOO`), then enter its value
 (such as `123`). The list shows each saved value and its `active`/`inactive`
