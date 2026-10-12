@@ -1,12 +1,16 @@
 package ui
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"terminal-gameplay/internal/utils"
 
@@ -15,9 +19,12 @@ import (
 )
 
 const (
-	fileMenuBoxGap       = 2
-	fileMenuBoxChrome    = 4
-	fileMenuMinBoxHeight = 12
+	fileMenuBoxGap            = 2
+	fileMenuBoxChrome         = 4
+	fileMenuMinBoxHeight      = 12
+	fileMenuPreviewMaxEntries = 16
+	fileMenuPreviewMaxBytes   = 4 * 1024
+	fileMenuPreviewMaxLines   = 16
 
 	FileMenuPageName = "file-menu"
 	OpenFileAction   = "open-file"
@@ -37,8 +44,20 @@ type fileMenuEntry struct {
 	kind fileMenuEntryKind
 }
 
+type fileMenuPreview struct {
+	entry        fileMenuEntry
+	directory    []fileMenuEntry
+	content      string
+	truncated    bool
+	binary       bool
+	err          error
+	hasSelection bool
+}
+
 type currentDirectoryReader interface {
 	ReadDirectory(path string) ([]fileMenuEntry, error)
+	ReadDirectoryPreview(path string, limit int) ([]fileMenuEntry, bool, error)
+	ReadFilePreview(path string, maxBytes int) ([]byte, bool, error)
 }
 
 type osCurrentDirectoryReader struct{}
@@ -48,7 +67,49 @@ func (osCurrentDirectoryReader) ReadDirectory(path string) ([]fileMenuEntry, err
 	if err != nil {
 		return nil, fmt.Errorf("read directory %q: %w", path, err)
 	}
+	return fileMenuEntriesFromDirEntries(entries)
+}
 
+func (osCurrentDirectoryReader) ReadDirectoryPreview(path string, limit int) ([]fileMenuEntry, bool, error) {
+	directory, err := os.Open(path)
+	if err != nil {
+		return nil, false, fmt.Errorf("open directory %q: %w", path, err)
+	}
+	defer directory.Close()
+
+	entries, err := directory.ReadDir(limit + 1)
+	if err != nil && err != io.EOF {
+		return nil, false, fmt.Errorf("read directory preview %q: %w", path, err)
+	}
+
+	truncated := len(entries) > limit
+	if truncated {
+		entries = entries[:limit]
+	}
+	result, err := fileMenuEntriesFromDirEntries(entries)
+	return result, truncated, err
+}
+
+func (osCurrentDirectoryReader) ReadFilePreview(path string, maxBytes int) ([]byte, bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, false, fmt.Errorf("open file preview %q: %w", path, err)
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(io.LimitReader(file, int64(maxBytes+1)))
+	if err != nil {
+		return nil, false, fmt.Errorf("read file preview %q: %w", path, err)
+	}
+
+	truncated := len(content) > maxBytes
+	if truncated {
+		content = content[:maxBytes]
+	}
+	return content, truncated, nil
+}
+
+func fileMenuEntriesFromDirEntries(entries []os.DirEntry) ([]fileMenuEntry, error) {
 	result := make([]fileMenuEntry, 0, len(entries))
 	for _, entry := range entries {
 		mode := fs.FileMode(0)
@@ -81,7 +142,33 @@ func (m *MultiPageViewModel) loadFileMenuDirectory(path string) bool {
 	m.fileMenuError = nil
 	m.fileMenuPath = filepath.Clean(path)
 	m.fileMenuCursor = 0
+	m.refreshFileMenuPreview()
 	return true
+}
+
+func (m *MultiPageViewModel) refreshFileMenuPreview() {
+	m.fileMenuPreview = fileMenuPreview{}
+	if len(m.fileMenuEntries) == 0 || m.fileMenuCursor >= len(m.fileMenuEntries) {
+		return
+	}
+
+	entry := m.fileMenuEntries[m.fileMenuCursor]
+	path := filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
+	preview := fileMenuPreview{entry: entry, hasSelection: true}
+	if entry.kind == fileMenuDirectory {
+		preview.directory, preview.truncated, preview.err = m.currentDirectoryReader.ReadDirectoryPreview(path, fileMenuPreviewMaxEntries)
+		sortFileMenuEntries(preview.directory)
+	} else {
+		content, truncated, err := m.currentDirectoryReader.ReadFilePreview(path, fileMenuPreviewMaxBytes)
+		preview.truncated = truncated
+		preview.err = err
+		if err == nil {
+			var linesTruncated bool
+			preview.content, preview.binary, linesTruncated = sanitizeFilePreview(content, fileMenuPreviewMaxLines)
+			preview.truncated = preview.truncated || linesTruncated
+		}
+	}
+	m.fileMenuPreview = preview
 }
 
 func (m MultiPageViewModel) updateFileMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -100,6 +187,7 @@ func (m MultiPageViewModel) updateFileMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		} else {
 			m.fileMenuCursor = len(m.fileMenuEntries) - 1
 		}
+		m.refreshFileMenuPreview()
 		return m, nil
 
 	case "down", "j":
@@ -111,6 +199,14 @@ func (m MultiPageViewModel) updateFileMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		} else {
 			m.fileMenuCursor = 0
 		}
+		m.refreshFileMenuPreview()
+		return m, nil
+
+	case "left":
+		if m.fileMenuPath == "." {
+			return m, nil
+		}
+		m.loadFileMenuDirectory(filepath.Dir(m.fileMenuPath))
 		return m, nil
 
 	case "enter":
@@ -166,9 +262,40 @@ func sortFileMenuEntries(entries []fileMenuEntry) {
 	})
 }
 
+func sanitizeFilePreview(content []byte, maxLines int) (string, bool, bool) {
+	if bytes.IndexByte(content, 0) >= 0 || !utf8.Valid(content) {
+		return "", true, false
+	}
+
+	var sanitized strings.Builder
+	for _, value := range string(content) {
+		switch {
+		case value == '\n':
+			sanitized.WriteRune(value)
+		case value == '\t':
+			sanitized.WriteString("    ")
+		case unicode.IsControl(value):
+			continue
+		default:
+			sanitized.WriteRune(value)
+		}
+	}
+
+	lines := strings.Split(sanitized.String(), "\n")
+	truncated := len(lines) > maxLines
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+	}
+	return strings.Join(lines, "\n"), false, truncated
+}
+
 func (m MultiPageViewModel) renderFileMenu() string {
 	leftContent := m.renderFileTree()
+	rightContent := m.renderFilePreview()
 	contentHeight := lipgloss.Height(leftContent)
+	if rightHeight := lipgloss.Height(rightContent); rightHeight > contentHeight {
+		contentHeight = rightHeight
+	}
 	if contentHeight < fileMenuMinBoxHeight {
 		contentHeight = fileMenuMinBoxHeight
 	}
@@ -187,7 +314,7 @@ func (m MultiPageViewModel) renderFileMenu() string {
 		Height(contentHeight)
 
 	leftBox := boxStyle.Render(leftContent)
-	rightBox := boxStyle.Render("")
+	rightBox := boxStyle.Render(rightContent)
 
 	return lipgloss.JoinHorizontal(
 		lipgloss.Top,
@@ -195,6 +322,75 @@ func (m MultiPageViewModel) renderFileMenu() string {
 		strings.Repeat(" ", fileMenuBoxGap),
 		rightBox,
 	)
+}
+
+func (m MultiPageViewModel) renderFilePreview() string {
+	preview := m.fileMenuPreview
+	if !preview.hasSelection {
+		return lipgloss.NewStyle().Foreground(m.styles.FooterColor).Render("no selection")
+	}
+
+	icon, label, color := m.fileMenuEntryPresentation(preview.entry)
+	header := lipgloss.NewStyle().Foreground(color).Render(icon + " " + label)
+	if preview.err != nil {
+		return header + "\n\n" + lipgloss.NewStyle().
+			Foreground(m.styles.ErrorColor).
+			Render("unable to load preview")
+	}
+
+	if preview.entry.kind == fileMenuDirectory {
+		lines := []string{header}
+		for index, entry := range preview.directory {
+			last := index == len(preview.directory)-1 && !preview.truncated
+			connector := "├─"
+			if last {
+				connector = "└─"
+			}
+			entryIcon, entryLabel, entryColor := m.fileMenuEntryPresentation(entry)
+			branch := lipgloss.NewStyle().Foreground(m.styles.DividerColor).Render("  " + connector + " ")
+			item := lipgloss.NewStyle().Foreground(entryColor).Render(entryIcon + " " + entryLabel)
+			lines = append(lines, branch+item)
+		}
+		if preview.truncated {
+			lines = append(lines, lipgloss.NewStyle().Foreground(m.styles.FooterColor).Render("  └─ …"))
+		} else if len(preview.directory) == 0 {
+			lines = append(lines, lipgloss.NewStyle().Foreground(m.styles.FooterColor).Render("  empty directory"))
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	if preview.binary {
+		return header + "\n\n" + lipgloss.NewStyle().
+			Foreground(m.styles.FooterColor).
+			Render("binary file — no text preview")
+	}
+
+	content := preview.content
+	if content == "" {
+		content = "empty file"
+	}
+	lines := strings.Split(content, "\n")
+	labelWidth := (m.contentWidth()-fileMenuBoxGap)/2 - fileMenuBoxChrome
+	for index := range lines {
+		lines[index] = truncateFilePreviewLine(lines[index], labelWidth)
+	}
+	if preview.truncated {
+		lines = append(lines, "…")
+	}
+	return header + "\n\n" + strings.Join(lines, "\n")
+}
+
+func truncateFilePreviewLine(text string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	if lipgloss.Width(text) <= maxWidth {
+		return text
+	}
+	if maxWidth == 1 {
+		return "…"
+	}
+	return truncateToWidth(text, maxWidth-1) + "…"
 }
 
 func (m MultiPageViewModel) renderFileTree() string {

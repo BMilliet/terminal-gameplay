@@ -18,14 +18,40 @@ import (
 )
 
 type fakeCurrentDirectoryReader struct {
-	entriesByPath map[string][]fileMenuEntry
-	errorsByPath  map[string]error
-	calls         []string
+	entriesByPath          map[string][]fileMenuEntry
+	errorsByPath           map[string]error
+	previewEntriesByPath   map[string][]fileMenuEntry
+	previewTruncatedByPath map[string]bool
+	fileContentsByPath     map[string][]byte
+	fileTruncatedByPath    map[string]bool
+	calls                  []string
+	directoryPreviewCalls  []directoryPreviewCall
+	filePreviewCalls       []filePreviewCall
+}
+
+type directoryPreviewCall struct {
+	path  string
+	limit int
+}
+
+type filePreviewCall struct {
+	path     string
+	maxBytes int
 }
 
 func (f *fakeCurrentDirectoryReader) ReadDirectory(path string) ([]fileMenuEntry, error) {
 	f.calls = append(f.calls, path)
 	return f.entriesByPath[path], f.errorsByPath[path]
+}
+
+func (f *fakeCurrentDirectoryReader) ReadDirectoryPreview(path string, limit int) ([]fileMenuEntry, bool, error) {
+	f.directoryPreviewCalls = append(f.directoryPreviewCalls, directoryPreviewCall{path: path, limit: limit})
+	return f.previewEntriesByPath[path], f.previewTruncatedByPath[path], f.errorsByPath[path]
+}
+
+func (f *fakeCurrentDirectoryReader) ReadFilePreview(path string, maxBytes int) ([]byte, bool, error) {
+	f.filePreviewCalls = append(f.filePreviewCalls, filePreviewCall{path: path, maxBytes: maxBytes})
+	return f.fileContentsByPath[path], f.fileTruncatedByPath[path], f.errorsByPath[path]
 }
 
 func TestHeaderShowsAppVersion(t *testing.T) {
@@ -124,6 +150,98 @@ func TestFileMenuShowsTwoSideBySideBoxesAndColoredFileTree(t *testing.T) {
 	}
 }
 
+func TestFileMenuRightBoxPreviewsSelectedFileAndUpdatesWithCursor(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{
+		entriesByPath: map[string][]fileMenuEntry{
+			".": {
+				{name: "notes.txt", kind: fileMenuRegularFile},
+				{name: "assets", kind: fileMenuDirectory},
+			},
+		},
+		previewEntriesByPath: map[string][]fileMenuEntry{
+			"assets": {
+				{name: "logo.png", kind: fileMenuImage},
+			},
+		},
+		fileContentsByPath: map[string][]byte{
+			"notes.txt": []byte("first preview line\nsecond preview line"),
+		},
+	}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	model = updated.(MultiPageViewModel)
+	if view := model.View(); !strings.Contains(view, "logo.png") {
+		t.Fatalf("directory preview does not show child entry: %q", view)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(MultiPageViewModel)
+	view := model.View()
+	if !strings.Contains(view, "first preview line") || !strings.Contains(view, "second preview line") {
+		t.Fatalf("file preview does not show selected file contents: %q", view)
+	}
+	if len(reader.filePreviewCalls) != 1 {
+		t.Fatalf("file preview calls = %#v, want one call", reader.filePreviewCalls)
+	}
+	if call := reader.filePreviewCalls[0]; call.path != "notes.txt" || call.maxBytes != fileMenuPreviewMaxBytes {
+		t.Fatalf("file preview call = %#v, want notes.txt limited to %d bytes", call, fileMenuPreviewMaxBytes)
+	}
+}
+
+func TestFileMenuDirectoryPreviewUsesBoundedReadAndShowsTruncation(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{
+		entriesByPath: map[string][]fileMenuEntry{
+			".": {
+				{name: "vendor", kind: fileMenuDirectory},
+			},
+		},
+		previewEntriesByPath: map[string][]fileMenuEntry{
+			"vendor": {
+				{name: "package-a", kind: fileMenuDirectory},
+				{name: "LICENSE", kind: fileMenuRegularFile},
+			},
+		},
+		previewTruncatedByPath: map[string]bool{"vendor": true},
+	}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	model = updated.(MultiPageViewModel)
+	view := model.View()
+
+	if !strings.Contains(view, "package-a/") || !strings.Contains(view, "LICENSE") || !strings.Contains(view, "…") {
+		t.Fatalf("bounded directory preview is incomplete: %q", view)
+	}
+	if len(reader.directoryPreviewCalls) != 1 {
+		t.Fatalf("directory preview calls = %#v, want one call", reader.directoryPreviewCalls)
+	}
+	if call := reader.directoryPreviewCalls[0]; call.path != "vendor" || call.limit != fileMenuPreviewMaxEntries {
+		t.Fatalf("directory preview call = %#v, want vendor limited to %d entries", call, fileMenuPreviewMaxEntries)
+	}
+	if len(reader.calls) != 1 || reader.calls[0] != "." {
+		t.Fatalf("full directory reads = %#v, want only current directory", reader.calls)
+	}
+}
+
+func TestSanitizeFilePreviewRemovesTerminalControlsAndLimitsLines(t *testing.T) {
+	content := []byte("safe\x1b[31m red\nsecond\nthird")
+
+	got, binary, truncated := sanitizeFilePreview(content, 2)
+
+	if binary {
+		t.Fatal("text preview was classified as binary")
+	}
+	if !truncated {
+		t.Fatal("line-limited preview was not marked as truncated")
+	}
+	if strings.Contains(got, "\x1b") || got != "safe[31m red\nsecond" {
+		t.Fatalf("sanitized preview = %q, want controls removed and two lines", got)
+	}
+}
+
 func TestFileMenuSelectorMovesThroughEntries(t *testing.T) {
 	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
 		".": {
@@ -147,11 +265,8 @@ func TestFileMenuSelectorMovesThroughEntries(t *testing.T) {
 	}
 	selectedRowFound := false
 	for _, line := range strings.Split(model.View(), "\n") {
-		if strings.Contains(line, "notes.txt") {
+		if strings.Contains(line, "notes.txt") && strings.Contains(line, "▌") {
 			selectedRowFound = true
-			if !strings.Contains(line, "▌") {
-				t.Fatalf("selected file row does not show selector: %q", line)
-			}
 		}
 	}
 	if !selectedRowFound {
@@ -184,6 +299,42 @@ func TestFileMenuEnterOnDirectoryShowsItsContents(t *testing.T) {
 	}
 	if view := model.View(); !strings.Contains(view, "main.go") || !strings.Contains(view, "▾ projects") {
 		t.Fatalf("file menu does not show selected directory contents: %q", view)
+	}
+}
+
+func TestFileMenuLeftArrowReturnsToPreviousDirectoryWithoutLeavingInitialRoot(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {
+			{name: "projects", kind: fileMenuDirectory},
+		},
+		"projects": {
+			{name: "main.go", kind: fileMenuRegularFile},
+		},
+	}}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	model = updated.(MultiPageViewModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(MultiPageViewModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(MultiPageViewModel)
+
+	if model.fileMenuPath != "." {
+		t.Fatalf("file menu path after left = %q, want initial root", model.fileMenuPath)
+	}
+	if len(reader.calls) != 3 || reader.calls[0] != "." || reader.calls[1] != "projects" || reader.calls[2] != "." {
+		t.Fatalf("directory read calls = %#v, want [., projects, .]", reader.calls)
+	}
+	if view := model.View(); !strings.Contains(view, "projects/") || !strings.Contains(view, "▾ .") {
+		t.Fatalf("file menu does not show previous directory: %q", view)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	model = updated.(MultiPageViewModel)
+	if model.fileMenuPath != "." || len(reader.calls) != 3 {
+		t.Fatalf("left at initial root changed path or reloaded it: path=%q calls=%#v", model.fileMenuPath, reader.calls)
 	}
 }
 

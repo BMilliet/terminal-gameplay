@@ -77,6 +77,7 @@ type MultiPageViewModel struct {
 	fileMenuError          error
 	fileMenuPath           string
 	fileMenuCursor         int
+	fileMenuPreview        fileMenuPreview
 	frequentList           []utils.ListItem
 	goToList               []utils.ListItem
 	scriptList             []utils.ListItem

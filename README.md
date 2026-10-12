@@ -123,10 +123,14 @@ The existing pages and lists form the **quick-menu**, which is shown when `tg`
 starts. Pressing `f` from the quick-menu opens the file menu. The file menu is
 shown below the application header without the quick-menu pages. It has two
 side-by-side panels: the left panel lists the current directory as an IDE-like
-file tree, and the right panel is currently empty. Directories, regular files,
-executables, and image files use distinct colors. Use `↑`/`↓` or `j`/`k` to
-move the selector. Press `Enter` on a directory to show its contents, or on a
-file to open it with `nvim`.
+file tree, and the right panel previews the selected item. Directories show a
+reduced tree of up to 16 immediate children, while text files show a sanitized
+preview of up to 4 KiB and 16 lines. Truncated previews end with `…`, and binary
+files are identified without printing their raw contents. Directories, regular
+files, executables, and image files use distinct colors. Use `↑`/`↓` or `j`/`k`
+to move the selector. Press `Enter` on a directory to show its contents, or on
+a file to open it with `nvim`. Press `←` to return to the previous directory;
+at the directory where `tg` started, `←` does nothing.
 
 In the `env` tab, press `a`, enter the key (such as `FOO`), then enter its value
 (such as `123`). The list shows each saved value and its `active`/`inactive`
