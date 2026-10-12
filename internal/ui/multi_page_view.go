@@ -24,14 +24,15 @@ import (
 )
 
 const (
-	defaultContentWidth = 112
-	minContentWidth     = 72
-	screenGutterWidth   = 4
-	rowChromeWidth      = 4
-	toggleStatusDivider = " · "
-	toggleValueWidth    = 32
-	headerTickDuration  = 140 * time.Millisecond
-	gradientSteps       = 14
+	defaultContentWidth   = 112
+	defaultTerminalHeight = 40
+	minContentWidth       = 72
+	screenGutterWidth     = 4
+	rowChromeWidth        = 4
+	toggleStatusDivider   = " · "
+	toggleValueWidth      = 32
+	headerTickDuration    = 140 * time.Millisecond
+	gradientSteps         = 14
 )
 
 var headerGradientPalette = []string{
@@ -114,6 +115,7 @@ type MultiPageViewModel struct {
 	quitting               bool
 	styles                 *Styles
 	terminalWidth          int
+	terminalHeight         int
 	headerFrame            int
 	pendingDelete          bool
 	// Fuzzy find state
@@ -200,6 +202,7 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 		quitting:               false,
 		styles:                 DefaultStyles(),
 		terminalWidth:          defaultContentWidth + screenGutterWidth,
+		terminalHeight:         defaultTerminalHeight,
 		searchMode:             false,
 		searchQuery:            "",
 		filteredList:           []utils.ListItem{},
@@ -222,6 +225,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.terminalWidth = msg.Width
+		m.terminalHeight = msg.Height
 		return m, nil
 
 	case headerTickMsg:

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"io/fs"
 	"strings"
 	"testing"
@@ -179,6 +180,81 @@ func TestFileMenuShowsTwoSideBySideBoxesAndColoredFileTree(t *testing.T) {
 	}
 }
 
+func TestFileMenuFillsTerminalHeightWithoutResizingWhileNavigating(t *testing.T) {
+	manyEntries := make([]fileMenuEntry, 30)
+	for index := range manyEntries {
+		manyEntries[index] = fileMenuEntry{name: fmt.Sprintf("file-%02d.txt", index), kind: fileMenuRegularFile}
+	}
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".":     {{name: "large", kind: fileMenuDirectory}},
+		"large": manyEntries,
+	}}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = updated.(MultiPageViewModel)
+	model = updateFileMenuWithKeys(model, runeKey('f'))
+	rootHeight := lipgloss.Height(model.View())
+
+	model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyEnter})
+	nestedHeight := lipgloss.Height(model.View())
+
+	if rootHeight != 40 || nestedHeight != 40 {
+		t.Fatalf("file menu heights = root %d, nested %d; want terminal height 40", rootHeight, nestedHeight)
+	}
+	for range 25 {
+		model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if view := model.View(); !strings.Contains(view, "file-25.txt") {
+		t.Fatalf("cursor moved outside the fixed-height viewport: %q", view)
+	}
+}
+
+func TestFileMenuPreviewIsClippedToTreePanelDimensions(t *testing.T) {
+	longName := strings.Repeat("very-long-name-", 20) + ".txt"
+	reader := &fakeCurrentDirectoryReader{
+		entriesByPath: map[string][]fileMenuEntry{
+			".": {{name: "directory", kind: fileMenuDirectory}},
+		},
+		previewEntriesByPath: map[string][]fileMenuEntry{
+			"directory": {
+				{name: longName, kind: fileMenuRegularFile},
+				{name: longName + "-second", kind: fileMenuRegularFile},
+			},
+		},
+	}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 34})
+	model = updated.(MultiPageViewModel)
+	model = updateFileMenuWithKeys(model, runeKey('f'))
+
+	if height := lipgloss.Height(model.View()); height != 34 {
+		t.Fatalf("long preview changed file menu height to %d, want 34: %q", height, model.View())
+	}
+}
+
+func TestRenderFixedHeightFileMenuBoxPreservesExactHeightAndBottomBorder(t *testing.T) {
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		Padding(0, 1).
+		Width(12).
+		Height(4)
+	content := strings.Repeat("content that wraps ", 20)
+
+	rendered := renderFixedHeightFileMenuBox(style, content, 6)
+	lines := strings.Split(rendered, "\n")
+
+	if height := lipgloss.Height(rendered); height != 6 {
+		t.Fatalf("fixed box height = %d, want 6: %q", height, rendered)
+	}
+	if !strings.Contains(lines[len(lines)-1], "╰") || !strings.Contains(lines[len(lines)-1], "╯") {
+		t.Fatalf("fixed box lost its bottom border: %q", rendered)
+	}
+}
+
 func TestFileMenuRightBoxPreviewsSelectedFileAndUpdatesWithCursor(t *testing.T) {
 	reader := &fakeCurrentDirectoryReader{
 		entriesByPath: map[string][]fileMenuEntry{
@@ -328,6 +404,43 @@ func TestFileMenuEnterOnDirectoryShowsItsContents(t *testing.T) {
 	}
 	if view := model.View(); !strings.Contains(view, "main.go") || !strings.Contains(view, "▾ projects") {
 		t.Fatalf("file menu does not show selected directory contents: %q", view)
+	}
+}
+
+func TestFileMenuRightArrowEntersSelectedDirectory(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {
+			{name: "projects", kind: fileMenuDirectory},
+		},
+		"projects": {
+			{name: "main.go", kind: fileMenuRegularFile},
+		},
+	}}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), tea.KeyMsg{Type: tea.KeyRight})
+
+	if model.fileMenuPath != "projects" {
+		t.Fatalf("file menu path after right = %q, want projects", model.fileMenuPath)
+	}
+	if view := model.View(); !strings.Contains(view, "main.go") {
+		t.Fatalf("right arrow did not show directory contents: %q", view)
+	}
+}
+
+func TestFileMenuRightArrowDoesNotOpenSelectedFile(t *testing.T) {
+	selected := ""
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {{name: "notes.txt", kind: fileMenuRegularFile}},
+	}}
+	model.selected = &selected
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), tea.KeyMsg{Type: tea.KeyRight})
+
+	if selected != "" || model.quitting {
+		t.Fatalf("right arrow opened file: selected=%q quitting=%v", selected, model.quitting)
 	}
 }
 

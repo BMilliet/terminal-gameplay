@@ -283,6 +283,17 @@ func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea
 		m.loadFileMenuDirectory(filepath.Dir(m.fileMenuPath))
 		return m, nil
 
+	case "right":
+		if len(m.fileMenuEntries) == 0 || m.fileMenuCursor >= len(m.fileMenuEntries) {
+			return m, nil
+		}
+		entry := m.fileMenuEntries[m.fileMenuCursor]
+		if entry.kind == fileMenuDirectory && !entry.pending {
+			path := filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
+			m.loadFileMenuDirectory(path)
+		}
+		return m, nil
+
 	case "enter":
 		if len(m.fileMenuEntries) == 0 || m.fileMenuCursor >= len(m.fileMenuEntries) {
 			return m, nil
@@ -937,21 +948,12 @@ func sanitizeFilePreview(content []byte, maxLines int) (string, bool, bool) {
 }
 
 func (m MultiPageViewModel) renderFileMenu() string {
+	contentWidth := m.fileMenuTopContentWidth()
 	leftContent := m.renderFileTree()
 	rightContent := m.renderFilePreview()
-	contentHeight := lipgloss.Height(leftContent)
-	if rightHeight := lipgloss.Height(rightContent); rightHeight > contentHeight {
-		contentHeight = rightHeight
-	}
-	if contentHeight < fileMenuMinBoxHeight {
-		contentHeight = fileMenuMinBoxHeight
-	}
-
-	boxWidth := (m.contentWidth() - fileMenuBoxGap) / 2
-	contentWidth := boxWidth - fileMenuBoxChrome
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
+	contentHeight := m.fileMenuTopContentHeight()
+	leftContent = fitFileMenuTreeHeight(leftContent, contentHeight)
+	rightContent = fitFileMenuPanelHeight(rightContent, contentHeight)
 
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -960,8 +962,9 @@ func (m MultiPageViewModel) renderFileMenu() string {
 		Width(contentWidth).
 		Height(contentHeight)
 
-	leftBox := boxStyle.Render(leftContent)
-	rightBox := boxStyle.Render(rightContent)
+	outerHeight := contentHeight + 2
+	leftBox := renderFixedHeightFileMenuBox(boxStyle, leftContent, outerHeight)
+	rightBox := renderFixedHeightFileMenuBox(boxStyle, rightContent, outerHeight)
 
 	boxes := lipgloss.JoinHorizontal(
 		lipgloss.Top,
@@ -970,6 +973,74 @@ func (m MultiPageViewModel) renderFileMenu() string {
 		rightBox,
 	)
 	return boxes + "\n" + m.renderFileMenuBottomPanels() + "\n" + m.renderFileMenuStatus()
+}
+
+func renderFixedHeightFileMenuBox(style lipgloss.Style, content string, height int) string {
+	rendered := style.Render(content)
+	lines := strings.Split(rendered, "\n")
+	if height <= 0 || len(lines) <= height {
+		return rendered
+	}
+	bottomBorder := lines[len(lines)-1]
+	lines = append(lines[:height-1], bottomBorder)
+	return strings.Join(lines, "\n")
+}
+
+func (m MultiPageViewModel) fileMenuTopContentWidth() int {
+	boxWidth := (m.contentWidth() - fileMenuBoxGap) / 2
+	width := boxWidth - fileMenuBoxChrome
+	if width < 1 {
+		return 1
+	}
+	return width
+}
+
+func (m MultiPageViewModel) fileMenuTopContentHeight() int {
+	headerHeight := lipgloss.Height(m.renderHeader())
+	height := m.terminalHeight - headerHeight - (fileMenuBottomBoxHeight + 2) - 2
+	if height < fileMenuMinBoxHeight {
+		return fileMenuMinBoxHeight
+	}
+	return height
+}
+
+func fitFileMenuPanelHeight(content string, height int) string {
+	lines := strings.Split(content, "\n")
+	if len(lines) <= height {
+		return content
+	}
+	return strings.Join(lines[:height], "\n")
+}
+
+func fitFileMenuTreeHeight(content string, height int) string {
+	lines := strings.Split(content, "\n")
+	if len(lines) <= height || height < 2 {
+		return fitFileMenuPanelHeight(content, height)
+	}
+
+	body := lines[1:]
+	capacity := height - 1
+	cursor := 0
+	for index, line := range body {
+		if strings.Contains(line, "█") {
+			cursor = index
+			break
+		}
+	}
+	start := 0
+	if cursor >= capacity {
+		start = cursor - capacity + 1
+	}
+	end := start + capacity
+	if end > len(body) {
+		end = len(body)
+		start = end - capacity
+		if start < 0 {
+			start = 0
+		}
+	}
+	visible := append([]string{lines[0]}, body[start:end]...)
+	return strings.Join(visible, "\n")
 }
 
 func (m MultiPageViewModel) renderFileMenuBottomPanels() string {
@@ -1113,10 +1184,11 @@ func (m MultiPageViewModel) renderFileMenuInputCursor() string {
 }
 
 func (m MultiPageViewModel) renderFilePreview() string {
+	contentWidth := m.fileMenuTopContentWidth()
 	if m.fileMenuMode == fileMenuConfirmMode {
 		lines := []string{"Pending filesystem changes", ""}
 		for _, operation := range m.fileMenuOperations {
-			lines = append(lines, operation.description())
+			lines = append(lines, truncateFilePreviewLine(operation.description(), contentWidth))
 		}
 		return strings.Join(lines, "\n")
 	}
@@ -1126,6 +1198,7 @@ func (m MultiPageViewModel) renderFilePreview() string {
 	}
 
 	icon, label, color := m.fileMenuEntryPresentation(preview.entry)
+	label = truncateSingleLine(label, contentWidth-lipgloss.Width(icon)-1)
 	header := lipgloss.NewStyle().Foreground(color).Render(icon + " " + label)
 	if preview.pending {
 		return header + "\n\n" + lipgloss.NewStyle().
@@ -1147,6 +1220,8 @@ func (m MultiPageViewModel) renderFilePreview() string {
 				connector = "└─"
 			}
 			entryIcon, entryLabel, entryColor := m.fileMenuEntryPresentation(entry)
+			entryLabelWidth := contentWidth - lipgloss.Width("  "+connector+" ") - lipgloss.Width(entryIcon+" ")
+			entryLabel = truncateSingleLine(entryLabel, entryLabelWidth)
 			branch := lipgloss.NewStyle().Foreground(m.styles.DividerColor).Render("  " + connector + " ")
 			item := lipgloss.NewStyle().Foreground(entryColor).Render(entryIcon + " " + entryLabel)
 			lines = append(lines, branch+item)
@@ -1170,7 +1245,7 @@ func (m MultiPageViewModel) renderFilePreview() string {
 		content = "empty file"
 	}
 	lines := strings.Split(content, "\n")
-	labelWidth := (m.contentWidth()-fileMenuBoxGap)/2 - fileMenuBoxChrome
+	labelWidth := contentWidth
 	for index := range lines {
 		lines[index] = truncateFilePreviewLine(lines[index], labelWidth)
 	}
@@ -1194,7 +1269,7 @@ func truncateFilePreviewLine(text string, maxWidth int) string {
 }
 
 func (m MultiPageViewModel) renderFileTree() string {
-	rootName := filepath.Base(m.fileMenuPath)
+	rootName := truncateSingleLine(filepath.Base(m.fileMenuPath), m.fileMenuTopContentWidth()-2)
 	lines := []string{
 		lipgloss.NewStyle().
 			Foreground(m.styles.FileMenuDirectoryColor).
