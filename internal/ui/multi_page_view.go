@@ -80,6 +80,7 @@ type MultiPageViewModel struct {
 	fileMenuError          error
 	fileMenuPath           string
 	fileMenuCursor         int
+	fileMenuNameCursor     int
 	fileMenuViewportStart  int
 	fileMenuPreview        fileMenuPreview
 	fileMenuMode           fileMenuMode

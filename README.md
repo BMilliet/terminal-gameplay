@@ -128,40 +128,44 @@ reduced tree of up to 16 immediate children, while text files show a sanitized
 preview of up to 4 KiB and 16 lines. Truncated previews end with `…`, and binary
 files are identified without printing their raw contents. Directories, regular
 files, executables, and image files use distinct colors. Use `↑`/`↓` or `j`/`k`
-to move the selector, `gg` to jump to the first entry, and `Shift+G` to jump to
-the last entry. Press `Enter` on a directory to show its contents, or on a file
-to open it with `nvim`. Press `→` as another option for entering the selected
-directory; unlike `Enter`, it does nothing on files. Press `←` to return to
-the previous directory; at the directory where `tg` started, `←` does nothing.
+to move between entries, `gg` to jump to the first entry, and `Shift+G` to jump
+to the last entry. The active entry has a Vim-style block cursor inside its
+name; move it with `h`/`l`, `0`/`$`, or `Home`/`End`. Press `Enter` on a
+directory to show its contents, or on a file to open it with `nvim`. Press `→`
+as another option for entering the selected directory; unlike `Enter`, it does
+nothing on files. Press `←` to return to the previous directory; at the
+directory where `tg` started, `←` does nothing.
 
 Filesystem changes in the file menu follow an Oil/Vim-inspired staged workflow:
 
-- `a` or `o` inserts an editable line directly in the tree, including inside an
+- `o` inserts a new editable line directly in the tree, including inside an
   empty directory. End the name with `/` to create a directory. Pressing `Esc`
   leaves the new entry buffered for `:w`; an empty line is discarded.
-- `i` edits the selected entry name or relative path. `Ctrl+U` clears the input,
-  which is useful when moving or renaming it. The inline block cursor can be
-  moved with `←`/`→`, `Home`, and `End`; `Backspace` and `Delete` edit around
-  its current position.
+- `i` edits before the normal-mode cursor and `a` edits after it. `I` starts at
+  the beginning of the name and `A` starts at the end, matching Vim. `Ctrl+U`
+  clears the name, which is useful when moving or renaming it. In Insert mode,
+  move the inline block cursor with `←`/`→`, `Home`, and `End`; `Backspace` and
+  `Delete` edit around its current position.
 - `Shift+V` enters Visual Line mode (`v` is also accepted). Extend the selection
   with `j`/`k` or the arrow keys, then press `y` to copy, `m` to mark for moving,
   or `d` to cut the selected entries. The active line uses a block cursor, while
   the other selected lines use selection markers.
 - In Normal mode, `yy`, `mm`, and `dd` act on the current entry. Like Vim,
-  `dd` removes the line but keeps the entry in the register: navigate to another
-  directory and press `p` to turn the pending deletion into a move. Pasting in
-  the original directory restores the line. Saving without pasting confirms the
-  deletion.
-- `:w` reviews all pending filesystem operations and asks for confirmation
-  before applying them. `:q!` discards pending changes and exits. `Esc` leaves
-  Insert mode while keeping typed edits, and cancels Visual, Command, or
-  confirmation mode.
+  `dd` keeps the entry in the register. Its line remains as a red ghost until
+  the change is written; navigate to another directory and press `p` to turn
+  the pending deletion into a move. Pasting in the original directory restores
+  the line.
+- `:w` applies all pending filesystem operations immediately. `:x` and `:wq`
+  apply them and exit after a successful save. `:q!` discards pending changes
+  and exits. `Esc` leaves Insert mode while keeping typed edits, and cancels
+  Visual or Command mode.
 
-No create, copy, move, or delete operation touches the filesystem before the
-`:w` confirmation. Copying beside the source automatically adds a `-copy`
-suffix. Pending destinations appear immediately in the tree with a `+`, while
-renames, moves, and deletions are also projected in the list before saving. All
-edited paths are constrained to the directory where `tg` started.
+No create, copy, move, or delete operation touches the filesystem before a
+write command. Copying beside the source automatically adds a `-copy` suffix.
+Pending deletions appear in red, copies and move destinations in yellow, and
+new entries in green. All return to their regular file-type color after a
+successful save. Edited paths are constrained to the directory where `tg`
+started.
 
 Below the file tree and preview, three compact panels provide live context:
 

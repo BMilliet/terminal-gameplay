@@ -173,6 +173,7 @@ func (m *MultiPageViewModel) loadFileMenuDirectory(path string) bool {
 	m.fileMenuError = nil
 	m.fileMenuPath = filepath.Clean(path)
 	m.fileMenuCursor = 0
+	m.fileMenuNameCursor = 0
 	m.fileMenuViewportStart = 0
 	m.fileMenuVisualAnchor = 0
 	m.fileMenuPendingKey = ""
@@ -290,6 +291,18 @@ func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea
 		m.jumpFileMenuCursor(len(m.fileMenuEntries) - 1)
 		return m, nil
 
+	case "h", "home", "0":
+		m.moveFileMenuNameCursor(-m.fileMenuNameCursor)
+		return m, nil
+
+	case "l":
+		m.moveFileMenuNameCursor(1)
+		return m, nil
+
+	case "end", "$":
+		m.moveFileMenuNameCursor(len(m.currentFileMenuEntryName()))
+		return m, nil
+
 	case "left":
 		if m.fileMenuPath == "." {
 			return m, nil
@@ -336,7 +349,7 @@ func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea
 		}
 		return m, nil
 
-	case "o", "a":
+	case "o":
 		m.fileMenuMode = fileMenuInsertMode
 		m.fileMenuInputAction = fileMenuCreateInput
 		m.fileMenuInput = ""
@@ -345,7 +358,7 @@ func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea
 		m.fileMenuStatus = "new entry; end with / for a directory"
 		return m, nil
 
-	case "i":
+	case "i", "a", "I", "A":
 		if len(m.fileMenuEntries) == 0 || m.fileMenuCursor >= len(m.fileMenuEntries) {
 			return m, nil
 		}
@@ -353,7 +366,16 @@ func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea
 		m.fileMenuMode = fileMenuInsertMode
 		m.fileMenuInputAction = fileMenuRenameInput
 		m.fileMenuInput = entry.name
-		m.fileMenuInputCursor = len([]rune(entry.name))
+		switch key {
+		case "a":
+			m.fileMenuInputCursor = m.fileMenuNameCursor + 1
+		case "I":
+			m.fileMenuInputCursor = 0
+		case "A":
+			m.fileMenuInputCursor = len([]rune(entry.name))
+		default:
+			m.fileMenuInputCursor = m.fileMenuNameCursor
+		}
 		m.fileMenuInputSource = filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
 		m.fileMenuInputKind = entry.kind
 		m.fileMenuStatus = "edit name or relative path"
@@ -580,6 +602,7 @@ func (m *MultiPageViewModel) moveFileMenuCursor(delta int) {
 		return
 	}
 	m.fileMenuCursor = (m.fileMenuCursor + delta + len(m.fileMenuEntries)) % len(m.fileMenuEntries)
+	m.clampFileMenuNameCursor()
 	m.adjustFileMenuViewport()
 	m.refreshFileMenuPreview()
 }
@@ -595,8 +618,35 @@ func (m *MultiPageViewModel) jumpFileMenuCursor(index int) {
 		index = len(m.fileMenuEntries) - 1
 	}
 	m.fileMenuCursor = index
+	m.clampFileMenuNameCursor()
 	m.adjustFileMenuViewport()
 	m.refreshFileMenuPreview()
+}
+
+func (m *MultiPageViewModel) moveFileMenuNameCursor(delta int) {
+	nameLength := len([]rune(m.currentFileMenuEntryName()))
+	if nameLength == 0 {
+		m.fileMenuNameCursor = 0
+		return
+	}
+	m.fileMenuNameCursor += delta
+	if m.fileMenuNameCursor < 0 {
+		m.fileMenuNameCursor = 0
+	}
+	if m.fileMenuNameCursor >= nameLength {
+		m.fileMenuNameCursor = nameLength - 1
+	}
+}
+
+func (m MultiPageViewModel) currentFileMenuEntryName() string {
+	if len(m.fileMenuEntries) == 0 || m.fileMenuCursor < 0 || m.fileMenuCursor >= len(m.fileMenuEntries) {
+		return ""
+	}
+	return m.fileMenuEntries[m.fileMenuCursor].name
+}
+
+func (m *MultiPageViewModel) clampFileMenuNameCursor() {
+	m.moveFileMenuNameCursor(0)
 }
 
 func (m *MultiPageViewModel) adjustFileMenuViewport() {
@@ -950,6 +1000,7 @@ func (m *MultiPageViewModel) selectFileMenuPath(path string) {
 	for index, entry := range m.fileMenuEntries {
 		if entry.name == name {
 			m.fileMenuCursor = index
+			m.fileMenuNameCursor = 0
 			m.refreshFileMenuPreview()
 			return
 		}
@@ -966,6 +1017,7 @@ func (m *MultiPageViewModel) clampFileMenuCursor() {
 	if m.fileMenuCursor >= len(m.fileMenuEntries) {
 		m.fileMenuCursor = len(m.fileMenuEntries) - 1
 	}
+	m.clampFileMenuNameCursor()
 }
 
 func classifyFileMenuEntry(name string, isDir bool, mode fs.FileMode) fileMenuEntryKind {
@@ -1232,7 +1284,7 @@ func (m MultiPageViewModel) renderFileMenuStatus() string {
 	}
 
 	if prompt == "" {
-		prompt = "a/o new · i edit · V select · yy copy · dd cut · p paste · :w save"
+		prompt = "o new · h/l move · i/a edit · V select · yy copy · dd cut · p paste · :w save"
 	}
 	if pending := len(m.fileMenuOperations); pending > 0 {
 		prompt = fmt.Sprintf("%s · %d pending", prompt, pending)
@@ -1252,6 +1304,24 @@ func (m MultiPageViewModel) renderFileMenuInputCursor() string {
 		position = len(runes)
 	}
 	return string(runes[:position]) + "█" + string(runes[position:])
+}
+
+func renderFileMenuTextCursor(text string, position int, color lipgloss.Color) string {
+	runes := []rune(text)
+	if position < 0 {
+		position = 0
+	}
+	if position > len(runes) {
+		position = len(runes)
+	}
+
+	textStyle := lipgloss.NewStyle().Foreground(color)
+	cursorStyle := textStyle.Reverse(true)
+	before := textStyle.Render(string(runes[:position]))
+	if position == len(runes) {
+		return before + cursorStyle.Render(" ")
+	}
+	return before + cursorStyle.Render(string(runes[position])) + textStyle.Render(string(runes[position+1:]))
 }
 
 func (m MultiPageViewModel) renderFilePreview() string {
@@ -1360,8 +1430,9 @@ func (m MultiPageViewModel) renderFileTree() string {
 
 		icon, label, color := m.fileMenuEntryPresentation(entry)
 		entryPath := filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
-		if m.fileMenuMode == fileMenuInsertMode && m.fileMenuInputAction == fileMenuRenameInput && entryPath == m.fileMenuInputSource {
-			label = m.renderFileMenuInputCursor()
+		editingName := m.fileMenuMode == fileMenuInsertMode && m.fileMenuInputAction == fileMenuRenameInput && entryPath == m.fileMenuInputSource
+		if editingName {
+			label = m.fileMenuInput
 		}
 		label = truncateSingleLine(label, labelWidth)
 		marker := "  "
@@ -1377,15 +1448,16 @@ func (m MultiPageViewModel) renderFileTree() string {
 			marker = "◆ "
 			branchColor = m.styles.SelectedTitleColor
 		}
-		if index == m.fileMenuCursor {
-			marker = "█ "
-			branchColor = m.styles.SelectedTitleColor
-		}
 		branch := lipgloss.NewStyle().
 			Foreground(branchColor).
 			Render(marker + connector + " ")
 		iconText := lipgloss.NewStyle().Foreground(color).Render(icon + " ")
 		labelText := lipgloss.NewStyle().Foreground(color).Render(label)
+		if editingName {
+			labelText = renderFileMenuTextCursor(label, m.fileMenuInputCursor, color)
+		} else if index == m.fileMenuCursor && (m.fileMenuMode == fileMenuNormalMode || m.fileMenuMode == fileMenuVisualMode) {
+			labelText = renderFileMenuTextCursor(label, m.fileMenuNameCursor, color)
+		}
 		lines = append(lines, branch+iconText+labelText)
 	}
 
@@ -1395,12 +1467,12 @@ func (m MultiPageViewModel) renderFileTree() string {
 			draftKind = fileMenuDirectory
 		}
 		icon, _, color := m.fileMenuEntryPresentation(fileMenuEntry{kind: draftKind})
-		label := truncateSingleLine(m.renderFileMenuInputCursor(), labelWidth)
+		label := truncateSingleLine(m.fileMenuInput, labelWidth)
 		branch := lipgloss.NewStyle().
 			Foreground(m.styles.SelectedTitleColor).
-			Render("█ └─ ")
+			Render("  └─ ")
 		iconText := lipgloss.NewStyle().Foreground(color).Render(icon + " ")
-		labelText := lipgloss.NewStyle().Foreground(color).Render(label)
+		labelText := renderFileMenuTextCursor(label, m.fileMenuInputCursor, color)
 		lines = append(lines, branch+iconText+labelText)
 	}
 

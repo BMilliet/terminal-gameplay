@@ -167,6 +167,9 @@ func TestFileMenuShowsTwoSideBySideBoxesAndColoredFileTree(t *testing.T) {
 	for label, color := range wantLabels {
 		seenColors[color] = true
 		coloredLabel := lipgloss.NewStyle().Foreground(color).Render(label)
+		if label == "assets/" {
+			coloredLabel = lipgloss.NewStyle().Foreground(color).Reverse(true).Render("a")
+		}
 		if !strings.Contains(view, coloredLabel) {
 			t.Errorf("file menu does not render %q with color %q: %q", label, color, view)
 		}
@@ -348,6 +351,12 @@ func TestSanitizeFilePreviewRemovesTerminalControlsAndLimitsLines(t *testing.T) 
 }
 
 func TestFileMenuSelectorMovesThroughEntries(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
 	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
 		".": {
 			{name: "notes.txt", kind: fileMenuRegularFile},
@@ -368,14 +377,12 @@ func TestFileMenuSelectorMovesThroughEntries(t *testing.T) {
 	if model.fileMenuCursor != 1 {
 		t.Fatalf("file menu cursor after down = %d, want 1", model.fileMenuCursor)
 	}
-	selectedRowFound := false
-	for _, line := range strings.Split(model.View(), "\n") {
-		if strings.Contains(line, "notes.txt") && strings.Contains(line, "█") {
-			selectedRowFound = true
-		}
-	}
-	if !selectedRowFound {
-		t.Fatal("selected file row was not rendered")
+	wantCursor := lipgloss.NewStyle().
+		Foreground(model.styles.FileMenuFileColor).
+		Reverse(true).
+		Render("n")
+	if view := model.View(); !strings.Contains(view, wantCursor) {
+		t.Fatalf("selected file name does not contain a Vim-style block cursor: %q", view)
 	}
 }
 
@@ -654,7 +661,7 @@ func TestFileMenuWriteAppliesStagedChangesWithoutExtraConfirmation(t *testing.T)
 	if len(model.fileMenuEntries) != 1 || model.fileMenuEntries[0].name != "new.txt" || model.fileMenuEntries[0].pending {
 		t.Fatalf("saved entry did not return to its normal state: %#v", model.fileMenuEntries)
 	}
-	defaultName := lipgloss.NewStyle().Foreground(model.styles.FileMenuFileColor).Render("new.txt")
+	defaultName := lipgloss.NewStyle().Foreground(model.styles.FileMenuFileColor).Reverse(true).Render("n")
 	if view := model.View(); !strings.Contains(view, defaultName) {
 		t.Fatalf("saved entry did not return to its default color: %q", view)
 	}
@@ -789,7 +796,7 @@ func TestFileMenuDDKeepsRedGhostInTreeAndPasteTurnsDeleteIntoMove(t *testing.T) 
 	if len(model.fileMenuEntries) != 2 || model.fileMenuEntries[1].name != "notes.txt" || !model.fileMenuEntries[1].pending {
 		t.Fatalf("pending delete is not retained as a ghost entry: %#v", model.fileMenuEntries)
 	}
-	redName := lipgloss.NewStyle().Foreground(model.styles.FileMenuDeletedColor).Render("notes.txt")
+	redName := lipgloss.NewStyle().Foreground(model.styles.FileMenuDeletedColor).Reverse(true).Render("n")
 	if view := model.View(); !strings.Contains(view, redName) {
 		t.Fatalf("pending delete is not rendered in red: %q", view)
 	}
@@ -825,7 +832,7 @@ func TestFileMenuPendingCopiesAreYellowAndNewEntriesAreGreen(t *testing.T) {
 
 	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('y'), runeKey('y'), runeKey('p'))
 	view := model.View()
-	yellowName := lipgloss.NewStyle().Foreground(model.styles.FileMenuCopiedColor).Render("notes-copy.txt")
+	yellowName := lipgloss.NewStyle().Foreground(model.styles.FileMenuCopiedColor).Reverse(true).Render("n")
 	if !strings.Contains(view, yellowName) {
 		t.Fatalf("pending copy is not rendered in yellow: %q", view)
 	}
@@ -834,7 +841,7 @@ func TestFileMenuPendingCopiesAreYellowAndNewEntriesAreGreen(t *testing.T) {
 		runeKey('o'), runeKey('n'), runeKey('e'), runeKey('w'), runeKey('.'), runeKey('t'), runeKey('x'), runeKey('t'), tea.KeyMsg{Type: tea.KeyEnter},
 	)
 	view = model.View()
-	greenName := lipgloss.NewStyle().Foreground(model.styles.FileMenuAddedColor).Render("new.txt")
+	greenName := lipgloss.NewStyle().Foreground(model.styles.FileMenuAddedColor).Reverse(true).Render("n")
 	if !strings.Contains(view, greenName) {
 		t.Fatalf("pending new entry is not rendered in green: %q", view)
 	}
@@ -913,14 +920,14 @@ func TestFileMenuPasteAppearsImmediatelyAsPendingEntry(t *testing.T) {
 	}
 }
 
-func TestFileMenuAEditsNewEntryInlineInsideEmptyDirectory(t *testing.T) {
+func TestFileMenuOEditsNewEntryInlineInsideEmptyDirectory(t *testing.T) {
 	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
 	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
 		".":     {{name: "empty", kind: fileMenuDirectory}},
 		"empty": {},
 	}}
 
-	model = updateFileMenuWithKeys(model, runeKey('f'), tea.KeyMsg{Type: tea.KeyEnter}, runeKey('a'))
+	model = updateFileMenuWithKeys(model, runeKey('f'), tea.KeyMsg{Type: tea.KeyEnter}, runeKey('o'))
 	for _, value := range "notes.txt" {
 		model = updateFileMenuWithKeys(model, runeKey(value))
 	}
@@ -952,7 +959,7 @@ func TestFileMenuInsertModeHasMovableTextCursor(t *testing.T) {
 	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
 	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{".": {}}}
 
-	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('a'))
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('o'))
 	for _, value := range "not.txt" {
 		model = updateFileMenuWithKeys(model, runeKey(value))
 	}
@@ -992,7 +999,7 @@ func TestFileMenuInsertModeRenamesSelectedEntry(t *testing.T) {
 		".": {{name: "note", kind: fileMenuRegularFile}},
 	}}
 
-	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('i'), runeKey('.'), runeKey('t'), runeKey('x'), runeKey('t'), tea.KeyMsg{Type: tea.KeyEnter})
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('A'), runeKey('.'), runeKey('t'), runeKey('x'), runeKey('t'), tea.KeyMsg{Type: tea.KeyEnter})
 
 	if len(model.fileMenuOperations) != 1 {
 		t.Fatalf("rename operations = %#v, want one", model.fileMenuOperations)
@@ -1000,6 +1007,56 @@ func TestFileMenuInsertModeRenamesSelectedEntry(t *testing.T) {
 	operation := model.fileMenuOperations[0]
 	if operation.kind != fileMenuMove || operation.source != "note" || operation.destination != "note.txt" {
 		t.Fatalf("rename operation = %#v", operation)
+	}
+}
+
+func TestFileMenuVimCursorControlsWhereInsertModeEditsName(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {{name: "notes.txt", kind: fileMenuRegularFile}},
+	}}
+
+	model = updateFileMenuWithKeys(model,
+		runeKey('f'), runeKey('l'), runeKey('l'), runeKey('l'), runeKey('l'), runeKey('i'),
+	)
+	if model.fileMenuMode != fileMenuInsertMode || model.fileMenuInputCursor != 4 {
+		t.Fatalf("insert mode started at position %d in mode %v, want position 4", model.fileMenuInputCursor, model.fileMenuMode)
+	}
+	wantCursor := lipgloss.NewStyle().Foreground(model.styles.FileMenuFileColor).Reverse(true).Render("s")
+	if tree := model.renderFileTree(); !strings.Contains(tree, wantCursor) {
+		t.Fatalf("insert cursor is not rendered over the edited name: %q", tree)
+	}
+
+	model = updateFileMenuWithKeys(model, runeKey('X'), tea.KeyMsg{Type: tea.KeyEnter})
+	if len(model.fileMenuOperations) != 1 {
+		t.Fatalf("rename operations = %#v, want one", model.fileMenuOperations)
+	}
+	operation := model.fileMenuOperations[0]
+	if operation.kind != fileMenuMove || operation.source != "notes.txt" || operation.destination != "noteXs.txt" {
+		t.Fatalf("rename operation = %#v, want notes.txt → noteXs.txt", operation)
+	}
+}
+
+func TestFileMenuVimAppendEditsSelectedNameAfterCursor(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {{name: "note", kind: fileMenuRegularFile}},
+	}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('$'), runeKey('a'))
+	if model.fileMenuMode != fileMenuInsertMode || model.fileMenuInputAction != fileMenuRenameInput || model.fileMenuInputCursor != 4 {
+		t.Fatalf("append mode = %v action=%v cursor=%d, want rename at end", model.fileMenuMode, model.fileMenuInputAction, model.fileMenuInputCursor)
+	}
+
+	model = updateFileMenuWithKeys(model, runeKey('.'), runeKey('t'), runeKey('x'), runeKey('t'), tea.KeyMsg{Type: tea.KeyEnter})
+	if len(model.fileMenuOperations) != 1 || model.fileMenuOperations[0].kind != fileMenuMove || model.fileMenuOperations[0].destination != "note.txt" {
+		t.Fatalf("append rename operations = %#v, want note → note.txt", model.fileMenuOperations)
 	}
 }
 
