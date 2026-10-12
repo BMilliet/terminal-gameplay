@@ -27,6 +27,7 @@ const (
 	fileMenuPreviewMaxBytes   = 4 * 1024
 	fileMenuPreviewMaxLines   = 16
 	fileMenuBottomBoxHeight   = 6
+	fileMenuScrollOffset      = 5
 
 	FileMenuPageName = "file-menu"
 	OpenFileAction   = "open-file"
@@ -171,6 +172,7 @@ func (m *MultiPageViewModel) loadFileMenuDirectory(path string) bool {
 	m.fileMenuError = nil
 	m.fileMenuPath = filepath.Clean(path)
 	m.fileMenuCursor = 0
+	m.fileMenuViewportStart = 0
 	m.fileMenuVisualAnchor = 0
 	m.fileMenuPendingKey = ""
 	m.rebuildFileMenuEntries()
@@ -235,6 +237,15 @@ func (m MultiPageViewModel) updateFileMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 
 func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if key == "g" {
+		if m.fileMenuPendingKey == "g" {
+			m.fileMenuPendingKey = ""
+			m.jumpFileMenuCursor(0)
+		} else {
+			m.fileMenuPendingKey = "g"
+		}
+		return m, nil
+	}
 	if key == "d" || key == "y" || key == "m" {
 		if m.fileMenuPendingKey != key {
 			m.fileMenuPendingKey = key
@@ -274,6 +285,10 @@ func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea
 
 	case "down", "j":
 		m.moveFileMenuCursor(1)
+		return m, nil
+
+	case "G":
+		m.jumpFileMenuCursor(len(m.fileMenuEntries) - 1)
 		return m, nil
 
 	case "left":
@@ -360,7 +375,19 @@ func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea
 }
 
 func (m *MultiPageViewModel) updateFileMenuVisual(msg tea.KeyMsg) {
-	switch msg.String() {
+	key := msg.String()
+	if key == "g" {
+		if m.fileMenuPendingKey == "g" {
+			m.fileMenuPendingKey = ""
+			m.jumpFileMenuCursor(0)
+		} else {
+			m.fileMenuPendingKey = "g"
+		}
+		return
+	}
+	m.fileMenuPendingKey = ""
+
+	switch key {
 	case "esc", "v", "V":
 		m.fileMenuMode = fileMenuNormalMode
 		m.fileMenuStatus = ""
@@ -368,6 +395,8 @@ func (m *MultiPageViewModel) updateFileMenuVisual(msg tea.KeyMsg) {
 		m.moveFileMenuCursor(-1)
 	case "down", "j":
 		m.moveFileMenuCursor(1)
+	case "G":
+		m.jumpFileMenuCursor(len(m.fileMenuEntries) - 1)
 	case "y":
 		m.setFileMenuClipboard(m.selectedFileMenuEntries(), false)
 		m.fileMenuMode = fileMenuNormalMode
@@ -550,7 +579,56 @@ func (m *MultiPageViewModel) moveFileMenuCursor(delta int) {
 		return
 	}
 	m.fileMenuCursor = (m.fileMenuCursor + delta + len(m.fileMenuEntries)) % len(m.fileMenuEntries)
+	m.adjustFileMenuViewport()
 	m.refreshFileMenuPreview()
+}
+
+func (m *MultiPageViewModel) jumpFileMenuCursor(index int) {
+	if len(m.fileMenuEntries) == 0 {
+		return
+	}
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(m.fileMenuEntries) {
+		index = len(m.fileMenuEntries) - 1
+	}
+	m.fileMenuCursor = index
+	m.adjustFileMenuViewport()
+	m.refreshFileMenuPreview()
+}
+
+func (m *MultiPageViewModel) adjustFileMenuViewport() {
+	if len(m.fileMenuEntries) == 0 {
+		m.fileMenuViewportStart = 0
+		return
+	}
+
+	capacity := m.fileMenuTopContentHeight() - 1
+	if capacity < 1 {
+		capacity = 1
+	}
+	offset := fileMenuScrollOffset
+	if maxOffset := (capacity - 1) / 2; offset > maxOffset {
+		offset = maxOffset
+	}
+
+	if m.fileMenuCursor < m.fileMenuViewportStart+offset {
+		m.fileMenuViewportStart = m.fileMenuCursor - offset
+	} else if m.fileMenuCursor >= m.fileMenuViewportStart+capacity-offset {
+		m.fileMenuViewportStart = m.fileMenuCursor - capacity + offset + 1
+	}
+
+	maxStart := len(m.fileMenuEntries) - capacity
+	if maxStart < 0 {
+		maxStart = 0
+	}
+	if m.fileMenuViewportStart < 0 {
+		m.fileMenuViewportStart = 0
+	}
+	if m.fileMenuViewportStart > maxStart {
+		m.fileMenuViewportStart = maxStart
+	}
 }
 
 func (m MultiPageViewModel) selectedFileMenuEntries() []fileMenuEntry {
@@ -952,7 +1030,7 @@ func (m MultiPageViewModel) renderFileMenu() string {
 	leftContent := m.renderFileTree()
 	rightContent := m.renderFilePreview()
 	contentHeight := m.fileMenuTopContentHeight()
-	leftContent = fitFileMenuTreeHeight(leftContent, contentHeight)
+	leftContent = fitFileMenuTreeHeight(leftContent, contentHeight, m.fileMenuViewportStart)
 	rightContent = fitFileMenuPanelHeight(rightContent, contentHeight)
 
 	boxStyle := lipgloss.NewStyle().
@@ -1012,7 +1090,7 @@ func fitFileMenuPanelHeight(content string, height int) string {
 	return strings.Join(lines[:height], "\n")
 }
 
-func fitFileMenuTreeHeight(content string, height int) string {
+func fitFileMenuTreeHeight(content string, height, viewportStart int) string {
 	lines := strings.Split(content, "\n")
 	if len(lines) <= height || height < 2 {
 		return fitFileMenuPanelHeight(content, height)
@@ -1020,24 +1098,16 @@ func fitFileMenuTreeHeight(content string, height int) string {
 
 	body := lines[1:]
 	capacity := height - 1
-	cursor := 0
-	for index, line := range body {
-		if strings.Contains(line, "█") {
-			cursor = index
-			break
-		}
+	start := viewportStart
+	if start < 0 {
+		start = 0
 	}
-	start := 0
-	if cursor >= capacity {
-		start = cursor - capacity + 1
+	if maxStart := len(body) - capacity; start > maxStart {
+		start = maxStart
 	}
 	end := start + capacity
 	if end > len(body) {
 		end = len(body)
-		start = end - capacity
-		if start < 0 {
-			start = 0
-		}
 	}
 	visible := append([]string{lines[0]}, body[start:end]...)
 	return strings.Join(visible, "\n")

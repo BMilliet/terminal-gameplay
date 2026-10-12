@@ -379,6 +379,59 @@ func TestFileMenuSelectorMovesThroughEntries(t *testing.T) {
 	}
 }
 
+func TestFileMenuScrollKeepsFiveRowsVisibleAheadOfCursor(t *testing.T) {
+	entries := make([]fileMenuEntry, 40)
+	for index := range entries {
+		entries[index] = fileMenuEntry{name: fmt.Sprintf("file-%02d.txt", index), kind: fileMenuRegularFile}
+	}
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{".": entries}}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+	model = updateFileMenuWithKeys(model, runeKey('f'))
+
+	visibleEntries := model.fileMenuTopContentHeight() - 1
+	for range visibleEntries - fileMenuScrollOffset {
+		model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyDown})
+	}
+
+	view := model.View()
+	if strings.Contains(view, "file-00.txt") {
+		t.Fatalf("file tree did not start scrolling with %d rows below the cursor: %q", fileMenuScrollOffset, view)
+	}
+	for index := model.fileMenuCursor + 1; index <= model.fileMenuCursor+fileMenuScrollOffset; index++ {
+		if name := fmt.Sprintf("file-%02d.txt", index); !strings.Contains(view, name) {
+			t.Fatalf("file tree does not keep %d rows visible below the cursor; missing %q: %q", fileMenuScrollOffset, name, view)
+		}
+	}
+}
+
+func TestFileMenuSupportsVimTopAndBottomNavigation(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {
+			{name: "one.txt", kind: fileMenuRegularFile},
+			{name: "two.txt", kind: fileMenuRegularFile},
+			{name: "three.txt", kind: fileMenuRegularFile},
+		},
+	}}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+	model = updateFileMenuWithKeys(model, runeKey('f'))
+
+	model = updateFileMenuWithKeys(model, runeKey('G'))
+	if model.fileMenuCursor != len(model.fileMenuEntries)-1 {
+		t.Fatalf("file menu cursor after G = %d, want %d", model.fileMenuCursor, len(model.fileMenuEntries)-1)
+	}
+
+	model = updateFileMenuWithKeys(model, runeKey('g'))
+	if model.fileMenuCursor != len(model.fileMenuEntries)-1 {
+		t.Fatalf("file menu cursor after first g = %d, want it unchanged", model.fileMenuCursor)
+	}
+	model = updateFileMenuWithKeys(model, runeKey('g'))
+	if model.fileMenuCursor != 0 {
+		t.Fatalf("file menu cursor after gg = %d, want 0", model.fileMenuCursor)
+	}
+}
+
 func TestFileMenuEnterOnDirectoryShowsItsContents(t *testing.T) {
 	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
 		".": {

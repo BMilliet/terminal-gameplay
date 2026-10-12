@@ -128,11 +128,11 @@ reduced tree of up to 16 immediate children, while text files show a sanitized
 preview of up to 4 KiB and 16 lines. Truncated previews end with `…`, and binary
 files are identified without printing their raw contents. Directories, regular
 files, executables, and image files use distinct colors. Use `↑`/`↓` or `j`/`k`
-to move the selector. Press `Enter` on a directory to show its contents, or on
-a file to open it with `nvim`. Press `→` as another option for entering the
-selected directory; unlike `Enter`, it does nothing on files. Press `←` to
-return to the previous directory; at the directory where `tg` started, `←`
-does nothing.
+to move the selector, `gg` to jump to the first entry, and `Shift+G` to jump to
+the last entry. Press `Enter` on a directory to show its contents, or on a file
+to open it with `nvim`. Press `→` as another option for entering the selected
+directory; unlike `Enter`, it does nothing on files. Press `←` to return to
+the previous directory; at the directory where `tg` started, `←` does nothing.
 
 Filesystem changes in the file menu follow an Oil/Vim-inspired staged workflow:
 
@@ -177,8 +177,8 @@ Below the file tree and preview, three compact panels provide live context:
 The file-system mode fills the terminal height by default. Its upper panels use
 the remaining vertical space and keep a fixed size while navigating between
 directories with different numbers of entries. Long trees scroll within that
-fixed viewport so the active block cursor always remains visible. The layout is
-recalculated only when the terminal itself is resized.
+fixed viewport with five lines of context around the active block cursor. The
+layout is recalculated only when the terminal itself is resized.
 
 The preview is constrained to exactly the same inner width and height as the
 file-tree panel. Long names and content lines are truncated before rendering,

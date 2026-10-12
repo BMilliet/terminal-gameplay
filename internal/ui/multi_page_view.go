@@ -80,6 +80,7 @@ type MultiPageViewModel struct {
 	fileMenuError          error
 	fileMenuPath           string
 	fileMenuCursor         int
+	fileMenuViewportStart  int
 	fileMenuPreview        fileMenuPreview
 	fileMenuMode           fileMenuMode
 	fileMenuVisualAnchor   int
@@ -226,6 +227,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.terminalWidth = msg.Width
 		m.terminalHeight = msg.Height
+		m.adjustFileMenuViewport()
 		return m, nil
 
 	case headerTickMsg:
