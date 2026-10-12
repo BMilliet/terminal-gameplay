@@ -17,6 +17,7 @@ const (
 	fileMenuVisualMode
 	fileMenuCommandMode
 	fileMenuConfirmMode
+	fileMenuProcessingMode
 )
 
 type fileMenuInputAction int

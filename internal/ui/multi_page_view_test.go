@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"strings"
 	"testing"
+	"time"
 
 	aliastab "terminal-gameplay/internal/alias"
 	"terminal-gameplay/internal/clipboard"
@@ -24,6 +25,7 @@ type fakeCurrentDirectoryReader struct {
 	previewTruncatedByPath map[string]bool
 	fileContentsByPath     map[string][]byte
 	fileTruncatedByPath    map[string]bool
+	metadataByPath         map[string]fileMenuMetadata
 	calls                  []string
 	directoryPreviewCalls  []directoryPreviewCall
 	filePreviewCalls       []filePreviewCall
@@ -75,6 +77,10 @@ func (f *fakeCurrentDirectoryReader) ReadDirectoryPreview(path string, limit int
 func (f *fakeCurrentDirectoryReader) ReadFilePreview(path string, maxBytes int) ([]byte, bool, error) {
 	f.filePreviewCalls = append(f.filePreviewCalls, filePreviewCall{path: path, maxBytes: maxBytes})
 	return f.fileContentsByPath[path], f.fileTruncatedByPath[path], f.errorsByPath[path]
+}
+
+func (f *fakeCurrentDirectoryReader) ReadMetadata(path string) (fileMenuMetadata, error) {
+	return f.metadataByPath[path], f.errorsByPath[path]
 }
 
 func TestHeaderShowsAppVersion(t *testing.T) {
@@ -457,13 +463,67 @@ func TestFileMenuCreateIsStagedAndAppliedOnlyAfterWriteConfirmation(t *testing.T
 		t.Fatalf("staged operations = %#v, want create new.txt", model.fileMenuOperations)
 	}
 
-	model = updateFileMenuWithKeys(model, runeKey('y'))
+	updated, cmd := model.Update(runeKey('y'))
+	model = updated.(MultiPageViewModel)
+	if model.fileMenuMode != fileMenuProcessingMode || cmd == nil {
+		t.Fatalf("save did not start background processing: mode=%v cmd=%v", model.fileMenuMode, cmd)
+	}
+	if view := model.View(); !strings.Contains(view, "running") {
+		t.Fatalf("process panel does not show active work: %q", view)
+	}
+	finished := cmd()
+	updated, _ = model.Update(finished)
+	model = updated.(MultiPageViewModel)
 
 	if len(operator.batches) != 1 || len(operator.batches[0]) != 1 {
 		t.Fatalf("applied batches = %#v, want one operation", operator.batches)
 	}
 	if len(model.fileMenuOperations) != 0 || model.fileMenuMode != fileMenuNormalMode {
 		t.Fatalf("successful save did not clear pending changes: %#v mode=%v", model.fileMenuOperations, model.fileMenuMode)
+	}
+}
+
+func TestFileMenuRendersProcessMetadataAndMemoryPanels(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
+	modified := time.Date(2026, time.October, 12, 14, 30, 0, 0, time.Local)
+	reader := &fakeCurrentDirectoryReader{
+		entriesByPath: map[string][]fileMenuEntry{
+			".": {
+				{name: "one.txt", kind: fileMenuRegularFile},
+				{name: "two.txt", kind: fileMenuRegularFile},
+			},
+		},
+		metadataByPath: map[string]fileMenuMetadata{
+			"one.txt": {size: 12, mode: 0o644, modified: modified},
+			"two.txt": {size: 24, mode: 0o600, modified: modified},
+		},
+	}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+	model.terminalWidth = 120
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('V'), tea.KeyMsg{Type: tea.KeyDown}, runeKey('y'))
+	view := model.View()
+
+	threeBottomPanels := false
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Count(line, "╭") == 3 {
+			threeBottomPanels = true
+			break
+		}
+	}
+	if !threeBottomPanels {
+		t.Fatalf("file menu does not render three lower panels: %q", view)
+	}
+	for _, text := range []string{"Process", "Metadata", "Memory", "24 B", "-rw-------", "one.txt", "two.txt"} {
+		if !strings.Contains(view, text) {
+			t.Errorf("lower panels do not contain %q: %q", text, view)
+		}
 	}
 }
 
@@ -517,8 +577,8 @@ func TestFileMenuDDKeepsEntryInRegisterAndPasteTurnsDeleteIntoMove(t *testing.T)
 	if len(model.fileMenuOperations) != 1 || model.fileMenuOperations[0].kind != fileMenuDelete {
 		t.Fatalf("operations after dd = %#v, want pending delete", model.fileMenuOperations)
 	}
-	if view := model.View(); strings.Contains(view, "notes.txt") {
-		t.Fatalf("deleted line is still visible before paste: %q", view)
+	if len(model.fileMenuEntries) != 1 || model.fileMenuEntries[0].name != "destination" {
+		t.Fatalf("deleted line is still present in the file tree: %#v", model.fileMenuEntries)
 	}
 
 	model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyEnter}, runeKey('p'))

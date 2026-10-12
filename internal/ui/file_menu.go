@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -25,6 +26,7 @@ const (
 	fileMenuPreviewMaxEntries = 16
 	fileMenuPreviewMaxBytes   = 4 * 1024
 	fileMenuPreviewMaxLines   = 16
+	fileMenuBottomBoxHeight   = 6
 
 	FileMenuPageName = "file-menu"
 	OpenFileAction   = "open-file"
@@ -52,17 +54,30 @@ type fileMenuPreview struct {
 	truncated    bool
 	binary       bool
 	pending      bool
+	metadata     fileMenuMetadata
+	metadataErr  error
 	err          error
 	hasSelection bool
+}
+
+type fileMenuMetadata struct {
+	size     int64
+	mode     fs.FileMode
+	modified time.Time
 }
 
 type currentDirectoryReader interface {
 	ReadDirectory(path string) ([]fileMenuEntry, error)
 	ReadDirectoryPreview(path string, limit int) ([]fileMenuEntry, bool, error)
 	ReadFilePreview(path string, maxBytes int) ([]byte, bool, error)
+	ReadMetadata(path string) (fileMenuMetadata, error)
 }
 
 type osCurrentDirectoryReader struct{}
+
+type fileMenuOperationFinishedMsg struct {
+	err error
+}
 
 func (osCurrentDirectoryReader) ReadDirectory(path string) ([]fileMenuEntry, error) {
 	entries, err := os.ReadDir(path)
@@ -109,6 +124,18 @@ func (osCurrentDirectoryReader) ReadFilePreview(path string, maxBytes int) ([]by
 		content = content[:maxBytes]
 	}
 	return content, truncated, nil
+}
+
+func (osCurrentDirectoryReader) ReadMetadata(path string) (fileMenuMetadata, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fileMenuMetadata{}, fmt.Errorf("read metadata %q: %w", path, err)
+	}
+	return fileMenuMetadata{
+		size:     info.Size(),
+		mode:     info.Mode(),
+		modified: info.ModTime(),
+	}, nil
 }
 
 func fileMenuEntriesFromDirEntries(entries []os.DirEntry) ([]fileMenuEntry, error) {
@@ -164,6 +191,7 @@ func (m *MultiPageViewModel) refreshFileMenuPreview() {
 		m.fileMenuPreview = preview
 		return
 	}
+	preview.metadata, preview.metadataErr = m.currentDirectoryReader.ReadMetadata(path)
 	if entry.kind == fileMenuDirectory {
 		preview.directory, preview.truncated, preview.err = m.currentDirectoryReader.ReadDirectoryPreview(path, fileMenuPreviewMaxEntries)
 		sortFileMenuEntries(preview.directory)
@@ -197,7 +225,8 @@ func (m MultiPageViewModel) updateFileMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 	case fileMenuCommandMode:
 		return m.updateFileMenuCommand(msg)
 	case fileMenuConfirmMode:
-		m.updateFileMenuConfirmation(msg)
+		return m, m.updateFileMenuConfirmation(msg)
+	case fileMenuProcessingMode:
 		return m, nil
 	default:
 		return m.updateFileMenuNormal(msg)
@@ -466,29 +495,43 @@ func (m MultiPageViewModel) updateFileMenuCommand(msg tea.KeyMsg) (tea.Model, te
 	return m, nil
 }
 
-func (m *MultiPageViewModel) updateFileMenuConfirmation(msg tea.KeyMsg) {
+func (m *MultiPageViewModel) updateFileMenuConfirmation(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
 	case "y", "enter":
-		if err := m.fileMenuOperator.Apply(m.fileMenuOperations); err != nil {
-			m.fileMenuMode = fileMenuNormalMode
-			m.fileMenuStatus = "save failed: " + err.Error()
-			return
+		operations := append([]fileMenuOperation(nil), m.fileMenuOperations...)
+		operator := m.fileMenuOperator
+		m.fileMenuMode = fileMenuProcessingMode
+		m.fileMenuProcessFrame = 0
+		m.fileMenuStatus = fmt.Sprintf("processing %d operation(s)", len(operations))
+		return func() tea.Msg {
+			return fileMenuOperationFinishedMsg{err: operator.Apply(operations)}
 		}
-		count := len(m.fileMenuOperations)
-		m.fileMenuOperations = nil
-		if m.fileMenuClipboardCut {
-			m.fileMenuClipboard = nil
-			m.fileMenuClipboardMove = false
-			m.fileMenuClipboardCut = false
-		}
-		m.fileMenuMode = fileMenuNormalMode
-		m.fileMenuStatus = fmt.Sprintf("saved %d operation(s)", count)
-		m.loadFileMenuDirectory(m.fileMenuPath)
-		m.fileMenuStatus = fmt.Sprintf("saved %d operation(s)", count)
 	case "n", "esc":
 		m.fileMenuMode = fileMenuNormalMode
 		m.fileMenuStatus = "save cancelled; changes remain pending"
 	}
+	return nil
+}
+
+func (m *MultiPageViewModel) finishFileMenuOperations(err error) {
+	if m.fileMenuMode != fileMenuProcessingMode {
+		return
+	}
+	if err != nil {
+		m.fileMenuMode = fileMenuNormalMode
+		m.fileMenuStatus = "save failed: " + err.Error()
+		return
+	}
+	count := len(m.fileMenuOperations)
+	m.fileMenuOperations = nil
+	if m.fileMenuClipboardCut {
+		m.fileMenuClipboard = nil
+		m.fileMenuClipboardMove = false
+		m.fileMenuClipboardCut = false
+	}
+	m.fileMenuMode = fileMenuNormalMode
+	m.loadFileMenuDirectory(m.fileMenuPath)
+	m.fileMenuStatus = fmt.Sprintf("saved %d operation(s)", count)
 }
 
 func (m *MultiPageViewModel) moveFileMenuCursor(delta int) {
@@ -926,7 +969,102 @@ func (m MultiPageViewModel) renderFileMenu() string {
 		strings.Repeat(" ", fileMenuBoxGap),
 		rightBox,
 	)
-	return boxes + "\n" + m.renderFileMenuStatus()
+	return boxes + "\n" + m.renderFileMenuBottomPanels() + "\n" + m.renderFileMenuStatus()
+}
+
+func (m MultiPageViewModel) renderFileMenuBottomPanels() string {
+	availableWidth := m.contentWidth() - 2*fileMenuBoxGap
+	boxWidth := availableWidth / 3
+	contentWidth := boxWidth - fileMenuBoxChrome
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(m.styles.MutedBorderColor).
+		Padding(0, 1).
+		Width(contentWidth).
+		Height(fileMenuBottomBoxHeight)
+
+	return lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		boxStyle.Render(m.renderFileMenuProcessPanel(contentWidth)),
+		strings.Repeat(" ", fileMenuBoxGap),
+		boxStyle.Render(m.renderFileMenuMetadataPanel(contentWidth)),
+		strings.Repeat(" ", fileMenuBoxGap),
+		boxStyle.Render(m.renderFileMenuMemoryPanel(contentWidth)),
+	)
+}
+
+func (m MultiPageViewModel) renderFileMenuProcessPanel(width int) string {
+	title := lipgloss.NewStyle().Bold(true).Foreground(m.styles.SelectedTitleColor).Render("Process")
+	barWidth := width - 2
+	if barWidth < 4 {
+		barWidth = 4
+	}
+	bar := []rune(strings.Repeat("░", barWidth))
+	state := "idle"
+	if m.fileMenuMode == fileMenuProcessingMode {
+		state = "running"
+		position := m.fileMenuProcessFrame % len(bar)
+		for offset := 0; offset < 3 && offset < len(bar); offset++ {
+			bar[(position+offset)%len(bar)] = '█'
+		}
+	}
+	return title + "\n\n" + string(bar) + "\n" + state
+}
+
+func (m MultiPageViewModel) renderFileMenuMetadataPanel(width int) string {
+	title := lipgloss.NewStyle().Bold(true).Foreground(m.styles.SelectedTitleColor).Render("Metadata")
+	preview := m.fileMenuPreview
+	if !preview.hasSelection {
+		return title + "\n\nno selection"
+	}
+	if preview.pending {
+		return title + "\n\n" + truncateSingleLine(preview.entry.name, width) + "\npending change"
+	}
+	if preview.metadataErr != nil {
+		return title + "\n\nunable to read metadata"
+	}
+	return strings.Join([]string{
+		title,
+		"",
+		truncateSingleLine(preview.entry.name, width),
+		formatFileMenuSize(preview.metadata.size) + "  " + preview.metadata.mode.String(),
+		preview.metadata.modified.Format("2006-01-02 15:04"),
+	}, "\n")
+}
+
+func (m MultiPageViewModel) renderFileMenuMemoryPanel(width int) string {
+	title := lipgloss.NewStyle().Bold(true).Foreground(m.styles.SelectedTitleColor).Render("Memory")
+	if len(m.fileMenuClipboard) == 0 {
+		return title + "\n\nempty"
+	}
+	lines := []string{title, ""}
+	for index, entry := range m.fileMenuClipboard {
+		if index >= fileMenuBottomBoxHeight-2 {
+			lines = append(lines, "…")
+			break
+		}
+		lines = append(lines, truncateSingleLine(entry.path, width))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func formatFileMenuSize(size int64) string {
+	const unit = int64(1024)
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	value := float64(size)
+	units := []string{"KiB", "MiB", "GiB", "TiB"}
+	for _, label := range units {
+		value /= float64(unit)
+		if value < float64(unit) || label == units[len(units)-1] {
+			return fmt.Sprintf("%.1f %s", value, label)
+		}
+	}
+	return fmt.Sprintf("%d B", size)
 }
 
 func (m MultiPageViewModel) renderFileMenuStatus() string {
@@ -947,6 +1085,8 @@ func (m MultiPageViewModel) renderFileMenuStatus() string {
 		prompt = ":" + m.fileMenuCommand + "█"
 	case fileMenuConfirmMode:
 		mode = "-- CONFIRM --"
+	case fileMenuProcessingMode:
+		mode = "-- PROCESSING --"
 	}
 
 	if prompt == "" {

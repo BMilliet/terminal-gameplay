@@ -94,6 +94,7 @@ type MultiPageViewModel struct {
 	fileMenuClipboard      []fileMenuClipboardEntry
 	fileMenuClipboardMove  bool
 	fileMenuClipboardCut   bool
+	fileMenuProcessFrame   int
 	frequentList           []utils.ListItem
 	goToList               []utils.ListItem
 	scriptList             []utils.ListItem
@@ -228,7 +229,16 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.headerFrame++
+		if m.currentMenu == FileMenu && m.fileMenuMode == fileMenuProcessingMode {
+			m.fileMenuProcessFrame++
+		}
 		return m, tickHeader()
+
+	case fileMenuOperationFinishedMsg:
+		if m.currentMenu == FileMenu {
+			m.finishFileMenuOperations(msg.err)
+		}
+		return m, nil
 
 	case tea.KeyMsg:
 		if m.currentMenu == FileMenu {

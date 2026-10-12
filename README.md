@@ -161,6 +161,17 @@ suffix. Pending destinations appear immediately in the tree with a `+`, while
 renames, moves, and deletions are also projected in the list before saving. All
 edited paths are constrained to the directory where `tg` started.
 
+Below the file tree and preview, three compact panels provide live context:
+
+- **Process** shows an animated progress bar while `:w` applies filesystem
+  operations. Saves run asynchronously, so long copies or recursive directory
+  deletions do not freeze the TUI.
+- **Metadata** shows the selected entry's name, size, permissions, and last
+  modification time.
+- **Memory** lists the paths currently held in the Vim-style register by `yy`,
+  `dd`, or a Visual mode operation. Long registers are truncated to fit the
+  panel.
+
 In the `env` tab, press `a`, enter the key (such as `FOO`), then enter its value
 (such as `123`). The list shows each saved value and its `active`/`inactive`
 state. Press Enter on an env key to toggle that state. Active keys are exported
