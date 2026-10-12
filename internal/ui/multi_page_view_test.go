@@ -607,7 +607,13 @@ func TestFileMenuShiftVEntersVisualLineMode(t *testing.T) {
 	}
 }
 
-func TestFileMenuCreateIsStagedAndAppliedOnlyAfterWriteConfirmation(t *testing.T) {
+func TestFileMenuWriteAppliesStagedChangesWithoutExtraConfirmation(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
 	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{".": {}}}
 	operator := &fakeFileMenuOperator{}
 	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
@@ -616,28 +622,26 @@ func TestFileMenuCreateIsStagedAndAppliedOnlyAfterWriteConfirmation(t *testing.T
 
 	model = updateFileMenuWithKeys(model,
 		runeKey('f'), runeKey('o'), runeKey('n'), runeKey('e'), runeKey('w'), runeKey('.'), runeKey('t'), runeKey('x'), runeKey('t'), tea.KeyMsg{Type: tea.KeyEnter},
-		runeKey(':'), runeKey('w'), tea.KeyMsg{Type: tea.KeyEnter},
+		runeKey(':'), runeKey('w'),
 	)
 
-	if model.fileMenuMode != fileMenuConfirmMode {
-		t.Fatalf("file menu mode = %v, want confirmation", model.fileMenuMode)
-	}
 	if len(operator.batches) != 0 {
-		t.Fatalf("operations were applied before confirmation: %#v", operator.batches)
+		t.Fatalf("operations were applied before :w was submitted: %#v", operator.batches)
 	}
 	if len(model.fileMenuOperations) != 1 || model.fileMenuOperations[0].kind != fileMenuCreateFile || model.fileMenuOperations[0].destination != "new.txt" {
 		t.Fatalf("staged operations = %#v, want create new.txt", model.fileMenuOperations)
 	}
 
-	updated, cmd := model.Update(runeKey('y'))
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(MultiPageViewModel)
 	if model.fileMenuMode != fileMenuProcessingMode || cmd == nil {
-		t.Fatalf("save did not start background processing: mode=%v cmd=%v", model.fileMenuMode, cmd)
+		t.Fatalf(":w did not start background processing directly: mode=%v cmd=%v", model.fileMenuMode, cmd)
 	}
 	if view := model.View(); !strings.Contains(view, "running") {
 		t.Fatalf("process panel does not show active work: %q", view)
 	}
 	finished := cmd()
+	reader.entriesByPath["."] = []fileMenuEntry{{name: "new.txt", kind: fileMenuRegularFile}}
 	updated, _ = model.Update(finished)
 	model = updated.(MultiPageViewModel)
 
@@ -646,6 +650,39 @@ func TestFileMenuCreateIsStagedAndAppliedOnlyAfterWriteConfirmation(t *testing.T
 	}
 	if len(model.fileMenuOperations) != 0 || model.fileMenuMode != fileMenuNormalMode {
 		t.Fatalf("successful save did not clear pending changes: %#v mode=%v", model.fileMenuOperations, model.fileMenuMode)
+	}
+	if len(model.fileMenuEntries) != 1 || model.fileMenuEntries[0].name != "new.txt" || model.fileMenuEntries[0].pending {
+		t.Fatalf("saved entry did not return to its normal state: %#v", model.fileMenuEntries)
+	}
+	defaultName := lipgloss.NewStyle().Foreground(model.styles.FileMenuFileColor).Render("new.txt")
+	if view := model.View(); !strings.Contains(view, defaultName) {
+		t.Fatalf("saved entry did not return to its default color: %q", view)
+	}
+}
+
+func TestFileMenuXWritesWithoutConfirmationAndQuitsAfterSuccess(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{".": {}}}
+	operator := &fakeFileMenuOperator{}
+	selected := ""
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+	model.fileMenuOperator = operator
+	model.selected = &selected
+	model = updateFileMenuWithKeys(model,
+		runeKey('f'), runeKey('o'), runeKey('n'), runeKey('e'), runeKey('w'), tea.KeyMsg{Type: tea.KeyEnter},
+		runeKey(':'), runeKey('x'),
+	)
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(MultiPageViewModel)
+	if model.fileMenuMode != fileMenuProcessingMode || cmd == nil {
+		t.Fatalf(":x did not start processing directly: mode=%v cmd=%v", model.fileMenuMode, cmd)
+	}
+
+	updated, quitCmd := model.Update(cmd())
+	model = updated.(MultiPageViewModel)
+	if !model.quitting || selected != utils.ExitSignal || quitCmd == nil {
+		t.Fatalf(":x did not quit after saving: quitting=%v selected=%q cmd=%v", model.quitting, selected, quitCmd)
 	}
 }
 
@@ -725,7 +762,13 @@ func TestFileMenuDeleteStagesVisualSelection(t *testing.T) {
 	}
 }
 
-func TestFileMenuDDKeepsEntryInRegisterAndPasteTurnsDeleteIntoMove(t *testing.T) {
+func TestFileMenuDDKeepsRedGhostInTreeAndPasteTurnsDeleteIntoMove(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
 	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
 	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
 		".": {
@@ -743,11 +786,15 @@ func TestFileMenuDDKeepsEntryInRegisterAndPasteTurnsDeleteIntoMove(t *testing.T)
 	if len(model.fileMenuOperations) != 1 || model.fileMenuOperations[0].kind != fileMenuDelete {
 		t.Fatalf("operations after dd = %#v, want pending delete", model.fileMenuOperations)
 	}
-	if len(model.fileMenuEntries) != 1 || model.fileMenuEntries[0].name != "destination" {
-		t.Fatalf("deleted line is still present in the file tree: %#v", model.fileMenuEntries)
+	if len(model.fileMenuEntries) != 2 || model.fileMenuEntries[1].name != "notes.txt" || !model.fileMenuEntries[1].pending {
+		t.Fatalf("pending delete is not retained as a ghost entry: %#v", model.fileMenuEntries)
+	}
+	redName := lipgloss.NewStyle().Foreground(model.styles.FileMenuDeletedColor).Render("notes.txt")
+	if view := model.View(); !strings.Contains(view, redName) {
+		t.Fatalf("pending delete is not rendered in red: %q", view)
 	}
 
-	model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyEnter}, runeKey('p'))
+	model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyUp}, tea.KeyMsg{Type: tea.KeyEnter}, runeKey('p'))
 
 	if len(model.fileMenuOperations) != 1 {
 		t.Fatalf("operations after paste = %#v, want one move", model.fileMenuOperations)
@@ -761,6 +808,35 @@ func TestFileMenuDDKeepsEntryInRegisterAndPasteTurnsDeleteIntoMove(t *testing.T)
 	}
 	if view := model.View(); !strings.Contains(view, "notes.txt") || !strings.Contains(view, "pending change") {
 		t.Fatalf("moved entry is not visible at destination: %q", view)
+	}
+}
+
+func TestFileMenuPendingCopiesAreYellowAndNewEntriesAreGreen(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {{name: "notes.txt", kind: fileMenuRegularFile}},
+	}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('y'), runeKey('y'), runeKey('p'))
+	view := model.View()
+	yellowName := lipgloss.NewStyle().Foreground(model.styles.FileMenuCopiedColor).Render("notes-copy.txt")
+	if !strings.Contains(view, yellowName) {
+		t.Fatalf("pending copy is not rendered in yellow: %q", view)
+	}
+
+	model = updateFileMenuWithKeys(model,
+		runeKey('o'), runeKey('n'), runeKey('e'), runeKey('w'), runeKey('.'), runeKey('t'), runeKey('x'), runeKey('t'), tea.KeyMsg{Type: tea.KeyEnter},
+	)
+	view = model.View()
+	greenName := lipgloss.NewStyle().Foreground(model.styles.FileMenuAddedColor).Render("new.txt")
+	if !strings.Contains(view, greenName) {
+		t.Fatalf("pending new entry is not rendered in green: %q", view)
 	}
 }
 

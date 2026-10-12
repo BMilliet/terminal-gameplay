@@ -52,6 +52,9 @@ type Styles struct {
 	FileMenuFileColor       lipgloss.Color
 	FileMenuExecutableColor lipgloss.Color
 	FileMenuImageColor      lipgloss.Color
+	FileMenuDeletedColor    lipgloss.Color
+	FileMenuCopiedColor     lipgloss.Color
+	FileMenuAddedColor      lipgloss.Color
 }
 
 func DefaultStyles() *Styles {
@@ -89,6 +92,9 @@ func DefaultStyles() *Styles {
 	s.FileMenuFileColor = lipgloss.Color("#CDD6F4")
 	s.FileMenuExecutableColor = lipgloss.Color("#A6E3A1")
 	s.FileMenuImageColor = lipgloss.Color("#F5C2E7")
+	s.FileMenuDeletedColor = lipgloss.Color("#F38BA8")
+	s.FileMenuCopiedColor = lipgloss.Color("#F9E2AF")
+	s.FileMenuAddedColor = lipgloss.Color("#A6E3A1")
 
 	s.BorderColor = lipgloss.Color("#585B70")
 	s.FooterColor = lipgloss.Color("#A6ADC8")

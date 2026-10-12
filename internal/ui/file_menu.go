@@ -43,9 +43,10 @@ const (
 )
 
 type fileMenuEntry struct {
-	name    string
-	kind    fileMenuEntryKind
-	pending bool
+	name        string
+	kind        fileMenuEntryKind
+	pending     bool
+	pendingKind fileMenuOperationKind
 }
 
 type fileMenuPreview struct {
@@ -226,8 +227,6 @@ func (m MultiPageViewModel) updateFileMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		return m, nil
 	case fileMenuCommandMode:
 		return m.updateFileMenuCommand(msg)
-	case fileMenuConfirmMode:
-		return m, m.updateFileMenuConfirmation(msg)
 	case fileMenuProcessingMode:
 		return m, nil
 	default:
@@ -499,15 +498,26 @@ func (m MultiPageViewModel) updateFileMenuCommand(msg tea.KeyMsg) (tea.Model, te
 		command := strings.TrimSpace(m.fileMenuCommand)
 		m.fileMenuCommand = ""
 		switch command {
-		case "w":
+		case "w", "x", "wq":
 			if len(m.fileMenuOperations) == 0 {
-				m.fileMenuMode = fileMenuNormalMode
-				m.fileMenuStatus = "no pending changes"
-				return m, nil
+				if command == "w" {
+					m.fileMenuMode = fileMenuNormalMode
+					m.fileMenuStatus = "no pending changes"
+					return m, nil
+				}
+				*m.selected = utils.ExitSignal
+				m.quitting = true
+				return m, tea.Quit
 			}
-			m.fileMenuMode = fileMenuConfirmMode
-			m.fileMenuStatus = fmt.Sprintf("apply %d pending operation(s)? y/n", len(m.fileMenuOperations))
-			return m, nil
+			operations := append([]fileMenuOperation(nil), m.fileMenuOperations...)
+			operator := m.fileMenuOperator
+			m.fileMenuMode = fileMenuProcessingMode
+			m.fileMenuProcessFrame = 0
+			m.fileMenuQuitAfterWrite = command != "w"
+			m.fileMenuStatus = fmt.Sprintf("processing %d operation(s)", len(operations))
+			return m, func() tea.Msg {
+				return fileMenuOperationFinishedMsg{err: operator.Apply(operations)}
+			}
 		case "q":
 			if len(m.fileMenuOperations) > 0 {
 				m.fileMenuMode = fileMenuNormalMode
@@ -535,35 +545,20 @@ func (m MultiPageViewModel) updateFileMenuCommand(msg tea.KeyMsg) (tea.Model, te
 	return m, nil
 }
 
-func (m *MultiPageViewModel) updateFileMenuConfirmation(msg tea.KeyMsg) tea.Cmd {
-	switch msg.String() {
-	case "y", "enter":
-		operations := append([]fileMenuOperation(nil), m.fileMenuOperations...)
-		operator := m.fileMenuOperator
-		m.fileMenuMode = fileMenuProcessingMode
-		m.fileMenuProcessFrame = 0
-		m.fileMenuStatus = fmt.Sprintf("processing %d operation(s)", len(operations))
-		return func() tea.Msg {
-			return fileMenuOperationFinishedMsg{err: operator.Apply(operations)}
-		}
-	case "n", "esc":
-		m.fileMenuMode = fileMenuNormalMode
-		m.fileMenuStatus = "save cancelled; changes remain pending"
-	}
-	return nil
-}
-
-func (m *MultiPageViewModel) finishFileMenuOperations(err error) {
+func (m *MultiPageViewModel) finishFileMenuOperations(err error) tea.Cmd {
 	if m.fileMenuMode != fileMenuProcessingMode {
-		return
+		return nil
 	}
 	if err != nil {
 		m.fileMenuMode = fileMenuNormalMode
+		m.fileMenuQuitAfterWrite = false
 		m.fileMenuStatus = "save failed: " + err.Error()
-		return
+		return nil
 	}
 	count := len(m.fileMenuOperations)
+	quitAfterWrite := m.fileMenuQuitAfterWrite
 	m.fileMenuOperations = nil
+	m.fileMenuQuitAfterWrite = false
 	if m.fileMenuClipboardCut {
 		m.fileMenuClipboard = nil
 		m.fileMenuClipboardMove = false
@@ -572,6 +567,12 @@ func (m *MultiPageViewModel) finishFileMenuOperations(err error) {
 	m.fileMenuMode = fileMenuNormalMode
 	m.loadFileMenuDirectory(m.fileMenuPath)
 	m.fileMenuStatus = fmt.Sprintf("saved %d operation(s)", count)
+	if quitAfterWrite {
+		*m.selected = utils.ExitSignal
+		m.quitting = true
+		return tea.Quit
+	}
+	return nil
 }
 
 func (m *MultiPageViewModel) moveFileMenuCursor(delta int) {
@@ -896,30 +897,32 @@ func (m *MultiPageViewModel) rebuildFileMenuEntries() {
 	entries := append([]fileMenuEntry(nil), m.fileMenuBaseEntries...)
 	for index := range entries {
 		entries[index].pending = false
+		entries[index].pendingKind = 0
 	}
 
-	removePath := func(path string) {
-		if filepath.Dir(path) != m.fileMenuPath {
-			return
-		}
-		name := filepath.Base(path)
-		filtered := entries[:0]
-		for _, entry := range entries {
-			if entry.name != name {
-				filtered = append(filtered, entry)
-			}
-		}
-		entries = filtered
-	}
 	addDestination := func(operation fileMenuOperation) {
 		if filepath.Dir(operation.destination) != m.fileMenuPath {
 			return
 		}
 		entries = append(entries, fileMenuEntry{
-			name:    filepath.Base(operation.destination),
-			kind:    operation.entryKind,
-			pending: true,
+			name:        filepath.Base(operation.destination),
+			kind:        operation.entryKind,
+			pending:     true,
+			pendingKind: operation.kind,
 		})
+	}
+	markSourceDeleted := func(operation fileMenuOperation) {
+		if filepath.Dir(operation.source) != m.fileMenuPath {
+			return
+		}
+		name := filepath.Base(operation.source)
+		for index := range entries {
+			if entries[index].name == name {
+				entries[index].pending = true
+				entries[index].pendingKind = fileMenuDelete
+				return
+			}
+		}
 	}
 
 	for _, operation := range m.fileMenuOperations {
@@ -927,10 +930,10 @@ func (m *MultiPageViewModel) rebuildFileMenuEntries() {
 		case fileMenuCreateFile, fileMenuCreateDirectory, fileMenuCopy:
 			addDestination(operation)
 		case fileMenuMove:
-			removePath(operation.source)
+			markSourceDeleted(operation)
 			addDestination(operation)
 		case fileMenuDelete:
-			removePath(operation.source)
+			markSourceDeleted(operation)
 		}
 	}
 	sortFileMenuEntries(entries)
@@ -1224,8 +1227,6 @@ func (m MultiPageViewModel) renderFileMenuStatus() string {
 	case fileMenuCommandMode:
 		mode = "-- COMMAND --"
 		prompt = ":" + m.fileMenuCommand + "█"
-	case fileMenuConfirmMode:
-		mode = "-- CONFIRM --"
 	case fileMenuProcessingMode:
 		mode = "-- PROCESSING --"
 	}
@@ -1255,13 +1256,6 @@ func (m MultiPageViewModel) renderFileMenuInputCursor() string {
 
 func (m MultiPageViewModel) renderFilePreview() string {
 	contentWidth := m.fileMenuTopContentWidth()
-	if m.fileMenuMode == fileMenuConfirmMode {
-		lines := []string{"Pending filesystem changes", ""}
-		for _, operation := range m.fileMenuOperations {
-			lines = append(lines, truncateFilePreviewLine(operation.description(), contentWidth))
-		}
-		return strings.Join(lines, "\n")
-	}
 	preview := m.fileMenuPreview
 	if !preview.hasSelection {
 		return lipgloss.NewStyle().Foreground(m.styles.FooterColor).Render("no selection")
@@ -1372,12 +1366,12 @@ func (m MultiPageViewModel) renderFileTree() string {
 		label = truncateSingleLine(label, labelWidth)
 		marker := "  "
 		branchColor := m.styles.DividerColor
-		if entry.pending {
-			marker = "+ "
-			branchColor = m.styles.SelectedTitleColor
-		} else if m.fileMenuEntryIsPendingDelete(entry) {
+		if m.fileMenuEntryIsPendingDelete(entry) {
 			marker = "D "
-			branchColor = m.styles.ErrorColor
+			branchColor = m.styles.FileMenuDeletedColor
+		} else if entry.pending {
+			marker = "+ "
+			branchColor = color
 		}
 		if m.fileMenuEntryIsVisuallySelected(index) {
 			marker = "◆ "
@@ -1425,19 +1419,30 @@ func (m MultiPageViewModel) fileMenuEntryIsVisuallySelected(index int) bool {
 }
 
 func (m MultiPageViewModel) fileMenuEntryIsPendingDelete(entry fileMenuEntry) bool {
-	path := filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
-	return m.hasFileMenuOperation(fileMenuDelete, path, "")
+	return entry.pending && entry.pendingKind == fileMenuDelete
 }
 
 func (m MultiPageViewModel) fileMenuEntryPresentation(entry fileMenuEntry) (icon, label string, color lipgloss.Color) {
 	switch entry.kind {
 	case fileMenuDirectory:
-		return "▸", entry.name + "/", m.styles.FileMenuDirectoryColor
+		icon, label, color = "▸", entry.name+"/", m.styles.FileMenuDirectoryColor
 	case fileMenuExecutable:
-		return "◆", entry.name, m.styles.FileMenuExecutableColor
+		icon, label, color = "◆", entry.name, m.styles.FileMenuExecutableColor
 	case fileMenuImage:
-		return "◇", entry.name, m.styles.FileMenuImageColor
+		icon, label, color = "◇", entry.name, m.styles.FileMenuImageColor
 	default:
-		return "•", entry.name, m.styles.FileMenuFileColor
+		icon, label, color = "•", entry.name, m.styles.FileMenuFileColor
 	}
+	if !entry.pending {
+		return icon, label, color
+	}
+	switch entry.pendingKind {
+	case fileMenuDelete:
+		color = m.styles.FileMenuDeletedColor
+	case fileMenuCopy, fileMenuMove:
+		color = m.styles.FileMenuCopiedColor
+	case fileMenuCreateFile, fileMenuCreateDirectory:
+		color = m.styles.FileMenuAddedColor
+	}
+	return icon, label, color
 }

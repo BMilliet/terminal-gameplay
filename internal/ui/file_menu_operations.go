@@ -16,7 +16,6 @@ const (
 	fileMenuInsertMode
 	fileMenuVisualMode
 	fileMenuCommandMode
-	fileMenuConfirmMode
 	fileMenuProcessingMode
 )
 
@@ -42,23 +41,6 @@ type fileMenuOperation struct {
 	source      string
 	destination string
 	entryKind   fileMenuEntryKind
-}
-
-func (o fileMenuOperation) description() string {
-	switch o.kind {
-	case fileMenuCreateFile:
-		return "+ file  " + o.destination
-	case fileMenuCreateDirectory:
-		return "+ dir   " + o.destination + string(filepath.Separator)
-	case fileMenuCopy:
-		return "C       " + o.source + " → " + o.destination
-	case fileMenuMove:
-		return "M       " + o.source + " → " + o.destination
-	case fileMenuDelete:
-		return "D       " + o.source
-	default:
-		return "?       unknown operation"
-	}
 }
 
 type fileMenuClipboardEntry struct {
