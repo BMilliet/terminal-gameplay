@@ -12,6 +12,7 @@ A powerful terminal productivity tool that provides quick access to directories,
 - 🔐 **Env**: Activate or deactivate environment variables in your current shell
 - 🔗 **Alias**: Activate or deactivate command aliases in your current shell
 - 🔎 **Fuzzy Search**: Find files and directories under the current directory or `$WORKSPACE` without an external `fzf` dependency
+- 📁 **File Menu**: Inspect the current directory in an IDE-like, color-coded file tree
 
 ## Installation
 
@@ -119,8 +120,10 @@ This will launch the interactive TUI where you can:
 
 The existing pages and lists form the **quick-menu**, which is shown when `tg`
 starts. Pressing `f` from the quick-menu opens the file menu. The file menu is
-currently an empty placeholder below the application header for future
-file-management features. Its header does not show the quick-menu pages.
+shown below the application header without the quick-menu pages. It has two
+side-by-side panels: the left panel lists the current directory as an IDE-like
+file tree, and the right panel is currently empty. Directories, regular files,
+executables, and image files use distinct colors.
 
 In the `env` tab, press `a`, enter the key (such as `FOO`), then enter its value
 (such as `123`). The list shows each saved value and its `active`/`inactive`

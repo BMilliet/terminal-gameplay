@@ -68,31 +68,34 @@ const (
 )
 
 type MultiPageViewModel struct {
-	config        *utils.ConfigDTO
-	features      *settings.FeaturesDTO
-	currentMenu   MenuType
-	currentPage   PageType
-	frequentList  []utils.ListItem
-	goToList      []utils.ListItem
-	scriptList    []utils.ListItem
-	notesList     []utils.ListItem
-	clipboardList []utils.ListItem
-	envList       []utils.ListItem
-	aliasList     []utils.ListItem
-	toolsList     []utils.ListItem
-	settingsList  []utils.ListItem
-	featuresList  []utils.ListItem
-	availPages    []PageType
-	pageIndex     int
-	cursor        int
-	viewportStart int // First visible item index for scrolling
-	maxVisible    int // Maximum items to show at once
-	selected      *string
-	quitting      bool
-	styles        *Styles
-	terminalWidth int
-	headerFrame   int
-	pendingDelete bool
+	config                 *utils.ConfigDTO
+	features               *settings.FeaturesDTO
+	currentDirectoryReader currentDirectoryReader
+	currentMenu            MenuType
+	currentPage            PageType
+	fileMenuEntries        []fileMenuEntry
+	fileMenuError          error
+	frequentList           []utils.ListItem
+	goToList               []utils.ListItem
+	scriptList             []utils.ListItem
+	notesList              []utils.ListItem
+	clipboardList          []utils.ListItem
+	envList                []utils.ListItem
+	aliasList              []utils.ListItem
+	toolsList              []utils.ListItem
+	settingsList           []utils.ListItem
+	featuresList           []utils.ListItem
+	availPages             []PageType
+	pageIndex              int
+	cursor                 int
+	viewportStart          int // First visible item index for scrolling
+	maxVisible             int // Maximum items to show at once
+	selected               *string
+	quitting               bool
+	styles                 *Styles
+	terminalWidth          int
+	headerFrame            int
+	pendingDelete          bool
 	// Fuzzy find state
 	searchMode   bool
 	searchQuery  string
@@ -152,31 +155,32 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 	}
 
 	m := MultiPageViewModel{
-		config:        config,
-		features:      features,
-		currentMenu:   QuickMenu,
-		currentPage:   currentPage,
-		frequentList:  frequentList,
-		goToList:      gototab.BuildList(config.GoTo),
-		scriptList:    scripts.BuildList(config.Scripts),
-		notesList:     notes.BuildList(config.Notes),
-		clipboardList: clipboard.BuildList(config.Clipboard),
-		envList:       envtab.BuildList(config.Env),
-		aliasList:     aliastab.BuildList(config.Aliases),
-		toolsList:     toolsList,
-		settingsList:  settingsList,
-		featuresList:  featuresList,
-		availPages:    availPages,
-		pageIndex:     pageIndex,
-		cursor:        0,
-		viewportStart: 0,
-		maxVisible:    10,
-		quitting:      false,
-		styles:        DefaultStyles(),
-		terminalWidth: defaultContentWidth + screenGutterWidth,
-		searchMode:    false,
-		searchQuery:   "",
-		filteredList:  []utils.ListItem{},
+		config:                 config,
+		features:               features,
+		currentDirectoryReader: osCurrentDirectoryReader{},
+		currentMenu:            QuickMenu,
+		currentPage:            currentPage,
+		frequentList:           frequentList,
+		goToList:               gototab.BuildList(config.GoTo),
+		scriptList:             scripts.BuildList(config.Scripts),
+		notesList:              notes.BuildList(config.Notes),
+		clipboardList:          clipboard.BuildList(config.Clipboard),
+		envList:                envtab.BuildList(config.Env),
+		aliasList:              aliastab.BuildList(config.Aliases),
+		toolsList:              toolsList,
+		settingsList:           settingsList,
+		featuresList:           featuresList,
+		availPages:             availPages,
+		pageIndex:              pageIndex,
+		cursor:                 0,
+		viewportStart:          0,
+		maxVisible:             10,
+		quitting:               false,
+		styles:                 DefaultStyles(),
+		terminalWidth:          defaultContentWidth + screenGutterWidth,
+		searchMode:             false,
+		searchQuery:            "",
+		filteredList:           []utils.ListItem{},
 	}
 
 	// Move cursor to first non-divider item
@@ -219,6 +223,8 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if !m.searchMode && msg.String() == "f" {
 			m.pendingDelete = false
+			m.fileMenuEntries, m.fileMenuError = m.currentDirectoryReader.ReadCurrentDirectory()
+			sortFileMenuEntries(m.fileMenuEntries)
 			m.currentMenu = FileMenu
 			return m, nil
 		}
@@ -505,7 +511,7 @@ func (m MultiPageViewModel) View() string {
 		return ""
 	}
 	if m.currentMenu == FileMenu {
-		return m.renderHeader()
+		return m.renderHeader() + m.renderFileMenu()
 	}
 
 	var b strings.Builder

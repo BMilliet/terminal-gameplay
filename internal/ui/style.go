@@ -46,6 +46,12 @@ type Styles struct {
 	SettingsValueColor         lipgloss.Color
 	SettingsEnabledColor       lipgloss.Color
 	SettingsDisabledColor      lipgloss.Color
+
+	// File menu colors
+	FileMenuDirectoryColor  lipgloss.Color
+	FileMenuFileColor       lipgloss.Color
+	FileMenuExecutableColor lipgloss.Color
+	FileMenuImageColor      lipgloss.Color
 }
 
 func DefaultStyles() *Styles {
@@ -77,6 +83,12 @@ func DefaultStyles() *Styles {
 	s.SettingsValueColor = lipgloss.Color("#BAC2DE")
 	s.SettingsEnabledColor = lipgloss.Color("#A6E3A1")
 	s.SettingsDisabledColor = lipgloss.Color("#F38BA8")
+
+	// File menu colors
+	s.FileMenuDirectoryColor = lipgloss.Color("#89B4FA")
+	s.FileMenuFileColor = lipgloss.Color("#CDD6F4")
+	s.FileMenuExecutableColor = lipgloss.Color("#A6E3A1")
+	s.FileMenuImageColor = lipgloss.Color("#F5C2E7")
 
 	s.BorderColor = lipgloss.Color("#585B70")
 	s.FooterColor = lipgloss.Color("#A6ADC8")

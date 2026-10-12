@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -15,6 +16,17 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )
+
+type fakeCurrentDirectoryReader struct {
+	entries []fileMenuEntry
+	err     error
+	calls   int
+}
+
+func (f *fakeCurrentDirectoryReader) ReadCurrentDirectory() ([]fileMenuEntry, error) {
+	f.calls++
+	return f.entries, f.err
+}
 
 func TestHeaderShowsAppVersion(t *testing.T) {
 	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
@@ -32,12 +44,17 @@ func TestFKeyOpensFileMenuWithHeaderWithoutQuickMenuPages(t *testing.T) {
 	})
 
 	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	reader := &fakeCurrentDirectoryReader{}
+	model.currentDirectoryReader = reader
 
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
 	model = updated.(MultiPageViewModel)
 
 	if model.currentMenu != FileMenu {
 		t.Fatalf("current menu = %v, want FileMenu", model.currentMenu)
+	}
+	if reader.calls != 1 {
+		t.Fatalf("current directory read calls = %d, want 1", reader.calls)
 	}
 	view := model.View()
 	if !strings.Contains(view, "terminal-gameplay") || !strings.Contains(view, "v"+version.AppVersion) {
@@ -47,6 +64,84 @@ func TestFKeyOpensFileMenuWithHeaderWithoutQuickMenuPages(t *testing.T) {
 		if pageName := model.getPageNameByType(page); strings.Contains(view, pageName) {
 			t.Fatalf("file menu header contains quick-menu page %q: %q", pageName, view)
 		}
+	}
+}
+
+func TestFileMenuShowsTwoSideBySideBoxesAndColoredFileTree(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
+	reader := &fakeCurrentDirectoryReader{entries: []fileMenuEntry{
+		{name: "notes.txt", kind: fileMenuRegularFile},
+		{name: "preview.PNG", kind: fileMenuImage},
+		{name: "run-tool", kind: fileMenuExecutable},
+		{name: "assets", kind: fileMenuDirectory},
+	}}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+	model.terminalWidth = 100
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	model = updated.(MultiPageViewModel)
+	view := model.View()
+
+	twoBoxesOnOneLine := false
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Count(line, "╭") == 2 {
+			twoBoxesOnOneLine = true
+			break
+		}
+	}
+	if !twoBoxesOnOneLine {
+		t.Fatalf("file menu does not render two side-by-side boxes: %q", view)
+	}
+
+	wantLabels := map[string]lipgloss.Color{
+		"assets/":     model.styles.FileMenuDirectoryColor,
+		"notes.txt":   model.styles.FileMenuFileColor,
+		"run-tool":    model.styles.FileMenuExecutableColor,
+		"preview.PNG": model.styles.FileMenuImageColor,
+	}
+	seenColors := map[lipgloss.Color]bool{}
+	for label, color := range wantLabels {
+		seenColors[color] = true
+		coloredLabel := lipgloss.NewStyle().Foreground(color).Render(label)
+		if !strings.Contains(view, coloredLabel) {
+			t.Errorf("file menu does not render %q with color %q: %q", label, color, view)
+		}
+	}
+	if len(seenColors) != len(wantLabels) {
+		t.Fatalf("file menu colors are not distinct: %#v", wantLabels)
+	}
+
+	if directoryIndex, fileIndex := strings.Index(view, "assets/"), strings.Index(view, "notes.txt"); directoryIndex < 0 || fileIndex < 0 || directoryIndex > fileIndex {
+		t.Fatalf("directory should be shown before files: %q", view)
+	}
+}
+
+func TestClassifyFileMenuEntry(t *testing.T) {
+	tests := []struct {
+		name     string
+		fileName string
+		isDir    bool
+		mode     fs.FileMode
+		wantKind fileMenuEntryKind
+	}{
+		{name: "directory", fileName: "assets", isDir: true, mode: 0755, wantKind: fileMenuDirectory},
+		{name: "executable", fileName: "run-tool", mode: 0755, wantKind: fileMenuExecutable},
+		{name: "image case insensitive", fileName: "preview.PNG", mode: 0644, wantKind: fileMenuImage},
+		{name: "regular file", fileName: "notes.txt", mode: 0644, wantKind: fileMenuRegularFile},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyFileMenuEntry(tt.fileName, tt.isDir, tt.mode); got != tt.wantKind {
+				t.Fatalf("classifyFileMenuEntry(%q) = %v, want %v", tt.fileName, got, tt.wantKind)
+			}
+		})
 	}
 }
 
