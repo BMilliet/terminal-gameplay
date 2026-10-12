@@ -28,6 +28,7 @@ const (
 	fileMenuPreviewMaxLines   = 16
 	fileMenuBottomBoxHeight   = 6
 	fileMenuScrollOffset      = 5
+	fileMenuPlacesOuterWidth  = 24
 
 	FileMenuPageName = "file-menu"
 	OpenFileAction   = "open-file"
@@ -41,6 +42,18 @@ const (
 	fileMenuExecutable
 	fileMenuImage
 )
+
+type fileMenuFocus int
+
+const (
+	fileMenuTreeFocus fileMenuFocus = iota
+	fileMenuPlacesFocus
+)
+
+type fileMenuPlace struct {
+	label string
+	path  string
+}
 
 type fileMenuEntry struct {
 	name        string
@@ -73,6 +86,8 @@ type currentDirectoryReader interface {
 	ReadDirectoryPreview(path string, limit int) ([]fileMenuEntry, bool, error)
 	ReadFilePreview(path string, maxBytes int) ([]byte, bool, error)
 	ReadMetadata(path string) (fileMenuMetadata, error)
+	HomeDirectory() (string, error)
+	WorkingDirectory() (string, error)
 }
 
 type osCurrentDirectoryReader struct{}
@@ -138,6 +153,84 @@ func (osCurrentDirectoryReader) ReadMetadata(path string) (fileMenuMetadata, err
 		mode:     info.Mode(),
 		modified: info.ModTime(),
 	}, nil
+}
+
+func (osCurrentDirectoryReader) HomeDirectory() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("find home directory: %w", err)
+	}
+	return home, nil
+}
+
+func (osCurrentDirectoryReader) WorkingDirectory() (string, error) {
+	directory, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("find working directory: %w", err)
+	}
+	return directory, nil
+}
+
+func (m *MultiPageViewModel) loadFileMenuPlaces() {
+	m.fileMenuPlacesError = nil
+	m.fileMenuProtectedPaths = nil
+	home, err := m.currentDirectoryReader.HomeDirectory()
+	if err != nil {
+		m.fileMenuPlacesError = err
+		m.fileMenuHomePlaces = nil
+	} else {
+		m.fileMenuHomePlaces = []fileMenuPlace{
+			{label: "Downloads", path: filepath.Join(home, "Downloads")},
+			{label: "Desktop", path: filepath.Join(home, "Desktop")},
+			{label: "Documents", path: filepath.Join(home, "Documents")},
+		}
+		m.fileMenuProtectedPaths = make([]string, 0, len(m.fileMenuHomePlaces))
+		for _, place := range m.fileMenuHomePlaces {
+			m.fileMenuProtectedPaths = append(m.fileMenuProtectedPaths, filepath.Clean(place.path))
+		}
+	}
+
+	workingDirectory, workingDirectoryErr := m.currentDirectoryReader.WorkingDirectory()
+	if workingDirectoryErr != nil {
+		m.fileMenuPlacesError = workingDirectoryErr
+		m.fileMenuPinnedPlaces = nil
+	} else {
+		workingDirectory = filepath.Clean(workingDirectory)
+		label := filepath.Base(workingDirectory)
+		if label == string(filepath.Separator) || label == "." {
+			label = workingDirectory
+		}
+		m.fileMenuPinnedPlaces = []fileMenuPlace{{label: label, path: workingDirectory}}
+	}
+	m.clampFileMenuPlacesCursor()
+}
+
+func (m *MultiPageViewModel) clampFileMenuPlacesCursor() {
+	count := len(m.fileMenuPinnedPlaces) + len(m.fileMenuHomePlaces)
+	if count == 0 {
+		m.fileMenuPlacesCursor = 0
+		return
+	}
+	if m.fileMenuPlacesCursor < 0 {
+		m.fileMenuPlacesCursor = 0
+	}
+	if m.fileMenuPlacesCursor >= count {
+		m.fileMenuPlacesCursor = count - 1
+	}
+}
+
+func (m MultiPageViewModel) selectedFileMenuPlace() (fileMenuPlace, bool) {
+	if m.fileMenuPlacesCursor < 0 {
+		return fileMenuPlace{}, false
+	}
+	if m.fileMenuPlacesCursor < len(m.fileMenuPinnedPlaces) {
+		return m.fileMenuPinnedPlaces[m.fileMenuPlacesCursor], true
+	}
+	index := m.fileMenuPlacesCursor - len(m.fileMenuPinnedPlaces)
+	if index >= len(m.fileMenuHomePlaces) {
+		return fileMenuPlace{}, false
+	}
+	return m.fileMenuHomePlaces[index], true
 }
 
 func fileMenuEntriesFromDirEntries(entries []os.DirEntry) ([]fileMenuEntry, error) {
@@ -237,6 +330,76 @@ func (m MultiPageViewModel) updateFileMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 
 func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if key == " " || key == "space" {
+		m.fileMenuLeaderPending = true
+		m.fileMenuPendingKey = ""
+		m.fileMenuStatus = "<leader>"
+		return m, nil
+	}
+	if m.fileMenuLeaderPending {
+		m.fileMenuLeaderPending = false
+		switch key {
+		case "left":
+			m.loadFileMenuPlaces()
+			m.fileMenuFocus = fileMenuPlacesFocus
+			m.fileMenuStatus = "places"
+			return m, nil
+		case "right":
+			m.fileMenuFocus = fileMenuTreeFocus
+			m.fileMenuStatus = "files"
+			return m, nil
+		}
+	}
+
+	if m.fileMenuFocus == fileMenuPlacesFocus {
+		placeCount := len(m.fileMenuPinnedPlaces) + len(m.fileMenuHomePlaces)
+		switch key {
+		case "up", "k":
+			if placeCount > 0 {
+				m.fileMenuPlacesCursor = (m.fileMenuPlacesCursor - 1 + placeCount) % placeCount
+			}
+			return m, nil
+		case "down", "j":
+			if placeCount > 0 {
+				m.fileMenuPlacesCursor = (m.fileMenuPlacesCursor + 1) % placeCount
+			}
+			return m, nil
+		case "enter":
+			if len(m.fileMenuOperations) > 0 {
+				m.fileMenuStatus = "save or discard pending changes before changing location"
+				return m, nil
+			}
+			place, ok := m.selectedFileMenuPlace()
+			if !ok {
+				return m, nil
+			}
+			if m.loadFileMenuDirectory(place.path) {
+				m.setFileMenuRoot(place.path)
+				m.fileMenuFocus = fileMenuTreeFocus
+				m.fileMenuStatus = "opened " + place.label
+			}
+			return m, nil
+		case "q":
+			if len(m.fileMenuOperations) > 0 {
+				m.fileMenuStatus = "pending changes; use :w to save or :q! to discard"
+				return m, nil
+			}
+			*m.selected = utils.ExitSignal
+			m.quitting = true
+			return m, tea.Quit
+		case "esc":
+			m.fileMenuStatus = ""
+			return m, nil
+		case ":":
+			m.fileMenuMode = fileMenuCommandMode
+			m.fileMenuCommand = ""
+			m.fileMenuStatus = ""
+			return m, nil
+		default:
+			return m, nil
+		}
+	}
+
 	if key == "g" {
 		if m.fileMenuPendingKey == "g" {
 			m.fileMenuPendingKey = ""
@@ -304,10 +467,14 @@ func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea
 		return m, nil
 
 	case "left":
-		if m.fileMenuPath == "." {
+		if filepath.Clean(m.fileMenuPath) == filepath.Clean(m.fileMenuRoot) {
 			return m, nil
 		}
-		m.loadFileMenuDirectory(filepath.Dir(m.fileMenuPath))
+		parent := filepath.Dir(m.fileMenuPath)
+		if !fileMenuPathContains(m.fileMenuRoot, parent) {
+			return m, nil
+		}
+		m.loadFileMenuDirectory(parent)
 		return m, nil
 
 	case "right":
@@ -363,6 +530,11 @@ func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea
 			return m, nil
 		}
 		entry := m.fileMenuEntries[m.fileMenuCursor]
+		entryPath := filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
+		if m.isFileMenuProtectedPath(entryPath) {
+			m.fileMenuStatus = "protected shortcut: cannot rename or move " + entry.name
+			return m, nil
+		}
 		m.fileMenuMode = fileMenuInsertMode
 		m.fileMenuInputAction = fileMenuRenameInput
 		m.fileMenuInput = entry.name
@@ -376,7 +548,7 @@ func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea
 		default:
 			m.fileMenuInputCursor = m.fileMenuNameCursor
 		}
-		m.fileMenuInputSource = filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
+		m.fileMenuInputSource = entryPath
 		m.fileMenuInputKind = entry.kind
 		m.fileMenuStatus = "edit name or relative path"
 		return m, nil
@@ -393,6 +565,16 @@ func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea
 	}
 
 	return m, nil
+}
+
+func (m *MultiPageViewModel) setFileMenuRoot(path string) {
+	m.fileMenuRoot = filepath.Clean(path)
+	switch operator := m.fileMenuOperator.(type) {
+	case osFileMenuOperator:
+		m.fileMenuOperator = operator.allowRoot(m.fileMenuRoot)
+	case *osFileMenuOperator:
+		*operator = operator.allowRoot(m.fileMenuRoot)
+	}
 }
 
 func (m *MultiPageViewModel) updateFileMenuVisual(msg tea.KeyMsg) {
@@ -697,6 +879,15 @@ func (m MultiPageViewModel) selectedFileMenuEntries() []fileMenuEntry {
 }
 
 func (m *MultiPageViewModel) setFileMenuClipboard(entries []fileMenuEntry, move bool) {
+	if move {
+		for _, entry := range entries {
+			path := filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
+			if m.isFileMenuProtectedPath(path) {
+				m.fileMenuStatus = "protected shortcut: cannot move " + entry.name
+				return
+			}
+		}
+	}
 	m.fileMenuClipboard = make([]fileMenuClipboardEntry, 0, len(entries))
 	for _, entry := range entries {
 		m.fileMenuClipboard = append(m.fileMenuClipboard, fileMenuClipboardEntry{
@@ -716,6 +907,13 @@ func (m *MultiPageViewModel) setFileMenuClipboard(entries []fileMenuEntry, move 
 func (m *MultiPageViewModel) stageFileMenuDelete(entries []fileMenuEntry) {
 	if len(entries) == 0 {
 		return
+	}
+	for _, entry := range entries {
+		path := filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
+		if m.isFileMenuProtectedPath(path) {
+			m.fileMenuStatus = "protected shortcut: cannot delete " + entry.name
+			return
+		}
 	}
 	m.setFileMenuClipboard(entries, true)
 	m.fileMenuClipboardCut = true
@@ -834,13 +1032,16 @@ func (m *MultiPageViewModel) commitFileMenuInput() error {
 	if createDirectory {
 		value = strings.TrimRight(value, string(filepath.Separator))
 	}
-	destination, err := resolveFileMenuPath(m.fileMenuPath, value)
+	destination, err := resolveFileMenuPath(m.fileMenuRoot, m.fileMenuPath, value)
 	if err != nil {
 		return err
 	}
 	if m.fileMenuInputAction == fileMenuRenameInput && destination == m.fileMenuInputSource {
 		m.fileMenuStatus = "name unchanged"
 		return nil
+	}
+	if m.fileMenuInputAction == fileMenuRenameInput && m.isFileMenuProtectedPath(m.fileMenuInputSource) {
+		return fmt.Errorf("protected shortcut: cannot rename or move %s", filepath.Base(m.fileMenuInputSource))
 	}
 	if m.fileMenuDestinationExists(destination) {
 		return fmt.Errorf("destination already exists: %s", destination)
@@ -874,9 +1075,9 @@ func (m *MultiPageViewModel) commitFileMenuInput() error {
 	return nil
 }
 
-func resolveFileMenuPath(directory, value string) (string, error) {
+func resolveFileMenuPath(root, directory, value string) (string, error) {
 	target := filepath.Clean(filepath.Join(directory, value))
-	relative, err := filepath.Rel(".", target)
+	relative, err := filepath.Rel(root, target)
 	if err != nil {
 		return "", fmt.Errorf("invalid path %q: %w", value, err)
 	}
@@ -892,6 +1093,16 @@ func fileMenuPathContains(parent, child string) bool {
 		return false
 	}
 	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
+}
+
+func (m MultiPageViewModel) isFileMenuProtectedPath(path string) bool {
+	path = filepath.Clean(path)
+	for _, protectedPath := range m.fileMenuProtectedPaths {
+		if path == filepath.Clean(protectedPath) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m MultiPageViewModel) fileMenuDestinationExists(path string) bool {
@@ -1082,28 +1293,39 @@ func sanitizeFilePreview(content []byte, maxLines int) (string, bool, bool) {
 
 func (m MultiPageViewModel) renderFileMenu() string {
 	contentWidth := m.fileMenuTopContentWidth()
-	leftContent := m.renderFileTree()
-	rightContent := m.renderFilePreview()
+	placesContent := m.renderFileMenuPlaces()
+	treeContent := m.renderFileTree()
+	previewContent := m.renderFilePreview()
 	contentHeight := m.fileMenuTopContentHeight()
-	leftContent = fitFileMenuTreeHeight(leftContent, contentHeight, m.fileMenuViewportStart)
-	rightContent = fitFileMenuPanelHeight(rightContent, contentHeight)
+	placesContent = fitFileMenuPanelHeight(placesContent, contentHeight)
+	treeContent = fitFileMenuTreeHeight(treeContent, contentHeight, m.fileMenuViewportStart)
+	previewContent = fitFileMenuPanelHeight(previewContent, contentHeight)
 
-	boxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(m.styles.MutedBorderColor).
-		Padding(0, 1).
-		Width(contentWidth).
-		Height(contentHeight)
+	boxStyle := func(width int, focused bool) lipgloss.Style {
+		borderColor := m.styles.MutedBorderColor
+		if focused {
+			borderColor = m.styles.SelectedTitleColor
+		}
+		return lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(borderColor).
+			Padding(0, 1).
+			Width(width).
+			Height(contentHeight)
+	}
 
 	outerHeight := contentHeight + 2
-	leftBox := renderFixedHeightFileMenuBox(boxStyle, leftContent, outerHeight)
-	rightBox := renderFixedHeightFileMenuBox(boxStyle, rightContent, outerHeight)
+	placesBox := renderFixedHeightFileMenuBox(boxStyle(m.fileMenuPlacesContentWidth(), m.fileMenuFocus == fileMenuPlacesFocus), placesContent, outerHeight)
+	treeBox := renderFixedHeightFileMenuBox(boxStyle(contentWidth, m.fileMenuFocus == fileMenuTreeFocus), treeContent, outerHeight)
+	previewBox := renderFixedHeightFileMenuBox(boxStyle(contentWidth, false), previewContent, outerHeight)
 
 	boxes := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		leftBox,
+		placesBox,
 		strings.Repeat(" ", fileMenuBoxGap),
-		rightBox,
+		treeBox,
+		strings.Repeat(" ", fileMenuBoxGap),
+		previewBox,
 	)
 	return boxes + "\n" + m.renderFileMenuBottomPanels() + "\n" + m.renderFileMenuStatus()
 }
@@ -1120,8 +1342,21 @@ func renderFixedHeightFileMenuBox(style lipgloss.Style, content string, height i
 }
 
 func (m MultiPageViewModel) fileMenuTopContentWidth() int {
-	boxWidth := (m.contentWidth() - fileMenuBoxGap) / 2
+	placesOuterWidth := m.fileMenuPlacesContentWidth() + fileMenuBoxChrome
+	boxWidth := (m.contentWidth() - 2*fileMenuBoxGap - placesOuterWidth) / 2
 	width := boxWidth - fileMenuBoxChrome
+	if width < 1 {
+		return 1
+	}
+	return width
+}
+
+func (m MultiPageViewModel) fileMenuPlacesContentWidth() int {
+	outerWidth := fileMenuPlacesOuterWidth
+	if maximum := m.contentWidth() / 3; outerWidth > maximum {
+		outerWidth = maximum
+	}
+	width := outerWidth - fileMenuBoxChrome
 	if width < 1 {
 		return 1
 	}
@@ -1266,6 +1501,9 @@ func formatFileMenuSize(size int64) string {
 func (m MultiPageViewModel) renderFileMenuStatus() string {
 	mode := "-- NORMAL --"
 	prompt := m.fileMenuStatus
+	if m.fileMenuMode == fileMenuNormalMode && m.fileMenuFocus == fileMenuPlacesFocus {
+		mode = "-- PLACES --"
+	}
 	switch m.fileMenuMode {
 	case fileMenuInsertMode:
 		mode = "-- INSERT --"
@@ -1284,7 +1522,11 @@ func (m MultiPageViewModel) renderFileMenuStatus() string {
 	}
 
 	if prompt == "" {
-		prompt = "o new · h/l move · i/a edit · V select · yy copy · dd cut · p paste · :w save"
+		if m.fileMenuFocus == fileMenuPlacesFocus {
+			prompt = "shortcuts · j/k select · enter open · space+→ files"
+		} else {
+			prompt = "o new · h/l move · i/a edit · V select · yy copy · dd cut · p paste · space+← places · :w save"
+		}
 	}
 	if pending := len(m.fileMenuOperations); pending > 0 {
 		prompt = fmt.Sprintf("%s · %d pending", prompt, pending)
@@ -1402,6 +1644,40 @@ func truncateFilePreviewLine(text string, maxWidth int) string {
 	return truncateToWidth(text, maxWidth-1) + "…"
 }
 
+func (m MultiPageViewModel) renderFileMenuPlaces() string {
+	width := m.fileMenuPlacesContentWidth()
+	headingStyle := lipgloss.NewStyle().Bold(true).Foreground(m.styles.SelectedTitleColor)
+	itemStyle := lipgloss.NewStyle().Foreground(m.styles.FileMenuFileColor)
+	mutedStyle := lipgloss.NewStyle().Foreground(m.styles.FooterColor)
+	lines := []string{headingStyle.Render("Pinned")}
+
+	placeIndex := 0
+	appendPlace := func(place fileMenuPlace, icon string) {
+		prefix := "  "
+		style := itemStyle
+		if m.fileMenuFocus == fileMenuPlacesFocus && placeIndex == m.fileMenuPlacesCursor {
+			prefix = "› "
+			style = lipgloss.NewStyle().Bold(true).Foreground(m.styles.SelectedTitleColor)
+		}
+		labelWidth := width - lipgloss.Width(prefix+icon+" ")
+		label := truncateSingleLine(place.label, labelWidth)
+		lines = append(lines, mutedStyle.Render(prefix)+style.Render(icon+" "+label))
+		placeIndex++
+	}
+
+	for _, place := range m.fileMenuPinnedPlaces {
+		appendPlace(place, "◆")
+	}
+	lines = append(lines, "", headingStyle.Render("Home"))
+	for _, place := range m.fileMenuHomePlaces {
+		appendPlace(place, "⌂")
+	}
+	if len(m.fileMenuPinnedPlaces)+len(m.fileMenuHomePlaces) == 0 && m.fileMenuPlacesError != nil {
+		lines = append(lines, mutedStyle.Render("  "+truncateSingleLine("unable to read home", width-2)))
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (m MultiPageViewModel) renderFileTree() string {
 	rootName := truncateSingleLine(filepath.Base(m.fileMenuPath), m.fileMenuTopContentWidth()-2)
 	lines := []string{
@@ -1455,7 +1731,7 @@ func (m MultiPageViewModel) renderFileTree() string {
 		labelText := lipgloss.NewStyle().Foreground(color).Render(label)
 		if editingName {
 			labelText = renderFileMenuTextCursor(label, m.fileMenuInputCursor, color)
-		} else if index == m.fileMenuCursor && (m.fileMenuMode == fileMenuNormalMode || m.fileMenuMode == fileMenuVisualMode) {
+		} else if m.fileMenuFocus == fileMenuTreeFocus && index == m.fileMenuCursor && (m.fileMenuMode == fileMenuNormalMode || m.fileMenuMode == fileMenuVisualMode) {
 			labelText = renderFileMenuTextCursor(label, m.fileMenuNameCursor, color)
 		}
 		lines = append(lines, branch+iconText+labelText)

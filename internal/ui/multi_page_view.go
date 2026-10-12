@@ -78,10 +78,18 @@ type MultiPageViewModel struct {
 	fileMenuBaseEntries    []fileMenuEntry
 	fileMenuEntries        []fileMenuEntry
 	fileMenuError          error
+	fileMenuRoot           string
 	fileMenuPath           string
 	fileMenuCursor         int
 	fileMenuNameCursor     int
 	fileMenuViewportStart  int
+	fileMenuFocus          fileMenuFocus
+	fileMenuLeaderPending  bool
+	fileMenuPinnedPlaces   []fileMenuPlace
+	fileMenuHomePlaces     []fileMenuPlace
+	fileMenuProtectedPaths []string
+	fileMenuPlacesCursor   int
+	fileMenuPlacesError    error
 	fileMenuPreview        fileMenuPreview
 	fileMenuMode           fileMenuMode
 	fileMenuVisualAnchor   int
@@ -186,6 +194,7 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 		fileMenuOperator:       osFileMenuOperator{root: "."},
 		currentMenu:            QuickMenu,
 		currentPage:            currentPage,
+		fileMenuRoot:           ".",
 		fileMenuPath:           ".",
 		frequentList:           frequentList,
 		goToList:               gototab.BuildList(config.GoTo),
@@ -255,7 +264,10 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if !m.searchMode && msg.String() == "f" {
 			m.pendingDelete = false
+			m.loadFileMenuPlaces()
 			m.loadFileMenuDirectory(".")
+			m.setFileMenuRoot(".")
+			m.fileMenuFocus = fileMenuTreeFocus
 			m.currentMenu = FileMenu
 			return m, nil
 		}

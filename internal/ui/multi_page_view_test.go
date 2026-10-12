@@ -21,6 +21,8 @@ import (
 
 type fakeCurrentDirectoryReader struct {
 	entriesByPath          map[string][]fileMenuEntry
+	homeDirectory          string
+	workingDirectory       string
 	errorsByPath           map[string]error
 	previewEntriesByPath   map[string][]fileMenuEntry
 	previewTruncatedByPath map[string]bool
@@ -84,6 +86,20 @@ func (f *fakeCurrentDirectoryReader) ReadMetadata(path string) (fileMenuMetadata
 	return f.metadataByPath[path], f.errorsByPath[path]
 }
 
+func (f *fakeCurrentDirectoryReader) HomeDirectory() (string, error) {
+	if f.homeDirectory == "" {
+		return "/Users/test", nil
+	}
+	return f.homeDirectory, nil
+}
+
+func (f *fakeCurrentDirectoryReader) WorkingDirectory() (string, error) {
+	if f.workingDirectory == "" {
+		return "/workspace/project", nil
+	}
+	return f.workingDirectory, nil
+}
+
 func TestHeaderShowsAppVersion(t *testing.T) {
 	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
 
@@ -123,7 +139,7 @@ func TestFKeyOpensFileMenuWithHeaderWithoutQuickMenuPages(t *testing.T) {
 	}
 }
 
-func TestFileMenuShowsTwoSideBySideBoxesAndColoredFileTree(t *testing.T) {
+func TestFileMenuShowsPlacesTreeAndPreviewPanels(t *testing.T) {
 	previousProfile := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() {
@@ -137,7 +153,7 @@ func TestFileMenuShowsTwoSideBySideBoxesAndColoredFileTree(t *testing.T) {
 			{name: "run-tool", kind: fileMenuExecutable},
 			{name: "assets", kind: fileMenuDirectory},
 		},
-	}}
+	}, homeDirectory: "/Users/test", workingDirectory: "/workspace/project"}
 	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
 	model.currentDirectoryReader = reader
 	model.terminalWidth = 100
@@ -146,15 +162,23 @@ func TestFileMenuShowsTwoSideBySideBoxesAndColoredFileTree(t *testing.T) {
 	model = updated.(MultiPageViewModel)
 	view := model.View()
 
-	twoBoxesOnOneLine := false
+	threeBoxesOnOneLine := false
 	for _, line := range strings.Split(view, "\n") {
-		if strings.Count(line, "╭") == 2 {
-			twoBoxesOnOneLine = true
+		if strings.Count(line, "╭") == 3 {
+			threeBoxesOnOneLine = true
 			break
 		}
 	}
-	if !twoBoxesOnOneLine {
-		t.Fatalf("file menu does not render two side-by-side boxes: %q", view)
+	if !threeBoxesOnOneLine {
+		t.Fatalf("file menu does not render places, tree, and preview side by side: %q", view)
+	}
+	for _, label := range []string{"Pinned", "project", "Home", "Downloads", "Desktop", "Documents"} {
+		if !strings.Contains(view, label) {
+			t.Errorf("places panel does not contain %q: %q", label, view)
+		}
+	}
+	if strings.Contains(view, "Disks") {
+		t.Fatalf("places panel still contains the removed Disks section: %q", view)
 	}
 
 	wantLabels := map[string]lipgloss.Color{
@@ -180,6 +204,190 @@ func TestFileMenuShowsTwoSideBySideBoxesAndColoredFileTree(t *testing.T) {
 
 	if directoryIndex, fileIndex := strings.Index(view, "assets/"), strings.Index(view, "notes.txt"); directoryIndex < 0 || fileIndex < 0 || directoryIndex > fileIndex {
 		t.Fatalf("directory should be shown before files: %q", view)
+	}
+}
+
+func TestFileMenuLeaderArrowsFocusPlacesAndOpenHomeLocation(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{
+		homeDirectory: "/Users/test",
+		entriesByPath: map[string][]fileMenuEntry{
+			".": {{name: "project", kind: fileMenuDirectory}},
+			"/Users/test/Downloads": {
+				{name: "archive.zip", kind: fileMenuRegularFile},
+				{name: "notes.txt", kind: fileMenuRegularFile},
+			},
+		},
+	}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey(' '), tea.KeyMsg{Type: tea.KeyLeft})
+	if view := model.View(); !strings.Contains(view, "-- PLACES --") {
+		t.Fatalf("space+left did not visibly focus the places panel: %q", view)
+	}
+	model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyDown}, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if model.fileMenuPath != "/Users/test/Downloads" {
+		t.Fatalf("file menu path = %q, want Downloads opened from places", model.fileMenuPath)
+	}
+	if view := model.View(); !strings.Contains(view, "archive.zip") {
+		t.Fatalf("file tree does not show the selected Home location: %q", view)
+	}
+	model = updateFileMenuWithKeys(model, runeKey(' '), tea.KeyMsg{Type: tea.KeyLeft}, runeKey(' '), tea.KeyMsg{Type: tea.KeyRight}, tea.KeyMsg{Type: tea.KeyDown})
+	if model.fileMenuCursor != 1 {
+		t.Fatalf("space+right did not return focus to the file tree: cursor=%d", model.fileMenuCursor)
+	}
+}
+
+func TestFileMenuPlacesOnlyAllowsNavigation(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{
+		entriesByPath: map[string][]fileMenuEntry{
+			".": {{name: "project", kind: fileMenuDirectory}},
+		},
+	}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+	model.fileMenuClipboard = []fileMenuClipboardEntry{{path: "project", kind: fileMenuDirectory}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey(' '), tea.KeyMsg{Type: tea.KeyLeft})
+	for _, key := range []rune{'d', 'd', 'o', 'i', 'a', 'p', 'v', 'V'} {
+		model = updateFileMenuWithKeys(model, runeKey(key))
+	}
+
+	if model.fileMenuMode != fileMenuNormalMode {
+		t.Fatalf("places mode = %v, want normal mode after mutation keys", model.fileMenuMode)
+	}
+	if len(model.fileMenuOperations) != 0 {
+		t.Fatalf("places staged operations = %#v, want none", model.fileMenuOperations)
+	}
+}
+
+func TestFileMenuHomePlacesProtectRootButAllowContentChanges(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{
+		homeDirectory: "/Users/test",
+		entriesByPath: map[string][]fileMenuEntry{
+			".":                     {{name: "project", kind: fileMenuDirectory}},
+			"/Users/test/Downloads": {{name: "folder", kind: fileMenuDirectory}, {name: "notes.txt", kind: fileMenuRegularFile}},
+			"/Users/test/Downloads/folder": {
+				{name: "nested.txt", kind: fileMenuRegularFile},
+			},
+		},
+	}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+	model.fileMenuClipboard = []fileMenuClipboardEntry{{path: "project", kind: fileMenuDirectory}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey(' '), tea.KeyMsg{Type: tea.KeyLeft}, tea.KeyMsg{Type: tea.KeyDown}, tea.KeyMsg{Type: tea.KeyEnter})
+	if model.fileMenuPath != "/Users/test/Downloads" || model.fileMenuRoot != "/Users/test/Downloads" {
+		t.Fatalf("path = %q, root = %q; want Downloads anchored as the tree root", model.fileMenuPath, model.fileMenuRoot)
+	}
+	model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyLeft})
+	if model.fileMenuPath != "/Users/test/Downloads" {
+		t.Fatalf("left navigated above protected root to %q", model.fileMenuPath)
+	}
+
+	model = updateFileMenuWithKeys(model, runeKey('d'), runeKey('d'))
+	if len(model.fileMenuOperations) != 1 || model.fileMenuOperations[0].source != "/Users/test/Downloads/folder" {
+		t.Fatalf("deleting Home content staged %#v, want child folder deletion", model.fileMenuOperations)
+	}
+	model = updateFileMenuWithKeys(model, runeKey('o'))
+	if model.fileMenuMode != fileMenuInsertMode {
+		t.Fatalf("creating Home content left mode %v, want insert", model.fileMenuMode)
+	}
+}
+
+func TestFileMenuPinnedWorkingDirectoryRestoresWritableTree(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{
+		homeDirectory:    "/Users/test",
+		workingDirectory: "/workspace/terminal-gameplay",
+		entriesByPath: map[string][]fileMenuEntry{
+			".":                            {{name: "project.txt", kind: fileMenuRegularFile}},
+			"/Users/test/Downloads":        {{name: "download.txt", kind: fileMenuRegularFile}},
+			"/workspace/terminal-gameplay": {{name: "main.go", kind: fileMenuRegularFile}},
+		},
+	}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+
+	model = updateFileMenuWithKeys(
+		model,
+		runeKey('f'),
+		runeKey(' '), tea.KeyMsg{Type: tea.KeyLeft},
+		tea.KeyMsg{Type: tea.KeyDown}, tea.KeyMsg{Type: tea.KeyEnter},
+		runeKey(' '), tea.KeyMsg{Type: tea.KeyLeft},
+		tea.KeyMsg{Type: tea.KeyUp}, tea.KeyMsg{Type: tea.KeyEnter},
+	)
+
+	if model.fileMenuPath != "/workspace/terminal-gameplay" {
+		t.Fatalf("file menu path = %q, want pinned working directory", model.fileMenuPath)
+	}
+	model = updateFileMenuWithKeys(model, runeKey('o'))
+	if model.fileMenuMode != fileMenuInsertMode {
+		t.Fatalf("pinned working directory mode after o = %v, want insert", model.fileMenuMode)
+	}
+}
+
+func TestFileMenuPinnedWorkingDirectoryInsideHomeShortcutAllowsContentChanges(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{
+		homeDirectory:    "/Users/test",
+		workingDirectory: "/Users/test/Downloads/project",
+		entriesByPath: map[string][]fileMenuEntry{
+			".":                             {{name: "main.go", kind: fileMenuRegularFile}},
+			"/Users/test/Downloads/project": {{name: "main.go", kind: fileMenuRegularFile}},
+		},
+	}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+
+	model = updateFileMenuWithKeys(
+		model,
+		runeKey('f'),
+		runeKey(' '), tea.KeyMsg{Type: tea.KeyLeft}, tea.KeyMsg{Type: tea.KeyEnter},
+		runeKey('o'),
+	)
+
+	if model.fileMenuMode != fileMenuInsertMode {
+		t.Fatalf("create inside pinned Home directory left mode %v, want insert", model.fileMenuMode)
+	}
+}
+
+func TestFileMenuHomeDirectoriesCannotBeChangedThroughPinnedParent(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{
+		homeDirectory:    "/Users/test",
+		workingDirectory: "/Users/test",
+		entriesByPath: map[string][]fileMenuEntry{
+			".": {},
+			"/Users/test": {
+				{name: "Desktop", kind: fileMenuDirectory},
+				{name: "notes.txt", kind: fileMenuRegularFile},
+			},
+		},
+	}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+
+	model = updateFileMenuWithKeys(
+		model,
+		runeKey('f'),
+		runeKey(' '), tea.KeyMsg{Type: tea.KeyLeft}, tea.KeyMsg{Type: tea.KeyEnter},
+		runeKey('d'), runeKey('d'),
+	)
+	if len(model.fileMenuOperations) != 0 || !strings.Contains(model.fileMenuStatus, "protected") {
+		t.Fatalf("deleting Desktop staged %#v with status %q", model.fileMenuOperations, model.fileMenuStatus)
+	}
+	model = updateFileMenuWithKeys(model, runeKey('m'), runeKey('m'))
+	if len(model.fileMenuClipboard) != 0 || !strings.Contains(model.fileMenuStatus, "protected") {
+		t.Fatalf("moving Desktop populated clipboard %#v with status %q", model.fileMenuClipboard, model.fileMenuStatus)
+	}
+
+	model = updateFileMenuWithKeys(model, runeKey('i'))
+	if model.fileMenuMode != fileMenuNormalMode || !strings.Contains(model.fileMenuStatus, "protected") {
+		t.Fatalf("renaming Desktop left mode %v with status %q", model.fileMenuMode, model.fileMenuStatus)
+	}
+
+	model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyDown}, runeKey('d'), runeKey('d'))
+	if len(model.fileMenuOperations) != 1 || model.fileMenuOperations[0].source != "/Users/test/notes.txt" {
+		t.Fatalf("deleting sibling content staged %#v, want notes.txt deletion", model.fileMenuOperations)
 	}
 }
 

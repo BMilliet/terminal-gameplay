@@ -121,13 +121,13 @@ This will launch the interactive TUI where you can:
 
 The existing pages and lists form the **quick-menu**, which is shown when `tg`
 starts. Pressing `f` from the quick-menu opens the file menu. The file menu is
-shown below the application header without the quick-menu pages. It has two
-side-by-side panels: the left panel lists the current directory as an IDE-like
-file tree, and the right panel previews the selected item. Directories show a
-reduced tree of up to 16 immediate children, while text files show a sanitized
-preview of up to 4 KiB and 16 lines. Truncated previews end with `…`, and binary
-files are identified without printing their raw contents. Directories, regular
-files, executables, and image files use distinct colors. Use `↑`/`↓` or `j`/`k`
+shown below the application header without the quick-menu pages. It has three
+side-by-side panels: Places on the left, the editable file tree in the center,
+and a preview of the selected item on the right. Directories show a reduced
+tree of up to 16 immediate children, while text files show a sanitized preview
+of up to 4 KiB and 16 lines. Truncated previews end with `…`, and binary files
+are identified without printing their raw contents. Directories, regular files,
+executables, and image files use distinct colors. Use `↑`/`↓` or `j`/`k`
 to move between entries, `gg` to jump to the first entry, and `Shift+G` to jump
 to the last entry. The active entry has a Vim-style block cursor inside its
 name; move it with `h`/`l`, `0`/`$`, or `Home`/`End`. Press `Enter` on a
@@ -135,6 +135,18 @@ directory to show its contents, or on a file to open it with `nvim`. Press `→`
 as another option for entering the selected directory; unlike `Enter`, it does
 nothing on files. Press `←` to return to the previous directory; at the
 directory where `tg` started, `←` does nothing.
+
+The Places panel has a **Pinned** section for the directory where `tg` was
+started and a **Home** section with the fixed `Downloads`, `Desktop`, and
+`Documents` shortcuts. It never lists disks or mounted volumes. In Normal mode,
+press `Space`+`←` to focus Places and `Space`+`→` to return to the file tree.
+Inside Places, use `j`/`k` or the vertical arrows and press `Enter` to open the
+selected location. The pinned starting directory remains editable, while the
+three Home shortcuts themselves cannot be renamed, moved, or deleted. Each
+shortcut becomes the navigation root, so the file tree cannot move above it.
+Their contents remain fully editable: files and subdirectories can be created,
+renamed, moved, pasted, or deleted with the normal staged workflow. The border
+and mode label indicate which panel currently has focus.
 
 Filesystem changes in the file menu follow an Oil/Vim-inspired staged workflow:
 

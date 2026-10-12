@@ -62,6 +62,41 @@ func TestOSFileMenuOperatorRejectsPathsOutsideRoot(t *testing.T) {
 	}
 }
 
+func TestOSFileMenuOperatorAcceptsAbsolutePathInsideRoot(t *testing.T) {
+	root := t.TempDir()
+	operator := osFileMenuOperator{root: root}
+	destination := filepath.Join(root, "created.txt")
+
+	if err := operator.Apply([]fileMenuOperation{{kind: fileMenuCreateFile, destination: destination}}); err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	if _, err := os.Stat(destination); err != nil {
+		t.Fatalf("absolute destination inside root was not created: %v", err)
+	}
+}
+
+func TestOSFileMenuOperatorCopiesAcrossAllowedPlaces(t *testing.T) {
+	sourceRoot := t.TempDir()
+	destinationRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(sourceRoot, "source.txt"), []byte("content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	operator := osFileMenuOperator{root: sourceRoot}.allowRoot(destinationRoot)
+	destination := filepath.Join(destinationRoot, "copied.txt")
+
+	err := operator.Apply([]fileMenuOperation{{
+		kind:        fileMenuCopy,
+		source:      "source.txt",
+		destination: destination,
+	}})
+	if err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	if content, err := os.ReadFile(destination); err != nil || string(content) != "content" {
+		t.Fatalf("copied content = %q, err = %v", content, err)
+	}
+}
+
 func TestOSFileMenuOperatorRejectsDestinationThroughSymlinkOutsideRoot(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

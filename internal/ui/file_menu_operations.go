@@ -53,7 +53,8 @@ type fileMenuOperator interface {
 }
 
 type osFileMenuOperator struct {
-	root string
+	root         string
+	allowedRoots []string
 }
 
 func (o osFileMenuOperator) Apply(operations []fileMenuOperation) error {
@@ -117,18 +118,32 @@ func (o osFileMenuOperator) resolve(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve file menu root: %w", err)
 	}
-	target, err := filepath.Abs(filepath.Join(root, path))
-	if err != nil {
-		return "", fmt.Errorf("resolve path %q: %w", path, err)
+	target := filepath.Clean(path)
+	if !filepath.IsAbs(target) {
+		target, err = filepath.Abs(filepath.Join(root, target))
+		if err != nil {
+			return "", fmt.Errorf("resolve path %q: %w", path, err)
+		}
 	}
-	relative, err := filepath.Rel(root, target)
-	if err != nil {
-		return "", fmt.Errorf("check path %q: %w", path, err)
+	allowedRoots := append([]string{root}, o.allowedRoots...)
+	for _, allowedRoot := range allowedRoots {
+		absoluteRoot, rootErr := filepath.Abs(allowedRoot)
+		if rootErr != nil {
+			return "", fmt.Errorf("resolve allowed file menu root: %w", rootErr)
+		}
+		relative, relativeErr := filepath.Rel(absoluteRoot, target)
+		if relativeErr != nil {
+			continue
+		}
+		if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		return resolveFileMenuPathSymlinks(absoluteRoot, target, path)
 	}
-	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path %q is outside the file menu root", path)
-	}
+	return "", fmt.Errorf("path %q is outside the file menu root", path)
+}
 
+func resolveFileMenuPathSymlinks(root, target, originalPath string) (string, error) {
 	realRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return "", fmt.Errorf("resolve file menu root symlinks: %w", err)
@@ -142,22 +157,33 @@ func (o osFileMenuOperator) resolve(path string) (string, error) {
 		}
 		next := filepath.Dir(existingParent)
 		if next == existingParent {
-			return "", fmt.Errorf("cannot resolve parent for %q", path)
+			return "", fmt.Errorf("cannot resolve parent for %q", originalPath)
 		}
 		existingParent = next
 	}
 	realParent, err := filepath.EvalSymlinks(existingParent)
 	if err != nil {
-		return "", fmt.Errorf("resolve path parent %q: %w", path, err)
+		return "", fmt.Errorf("resolve path parent %q: %w", originalPath, err)
 	}
 	realRelative, err := filepath.Rel(realRoot, realParent)
 	if err != nil {
-		return "", fmt.Errorf("check real path %q: %w", path, err)
+		return "", fmt.Errorf("check real path %q: %w", originalPath, err)
 	}
 	if realRelative == ".." || strings.HasPrefix(realRelative, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path %q resolves outside the file menu root", path)
+		return "", fmt.Errorf("path %q resolves outside the file menu root", originalPath)
 	}
 	return target, nil
+}
+
+func (o osFileMenuOperator) allowRoot(path string) osFileMenuOperator {
+	cleanPath := filepath.Clean(path)
+	for _, root := range o.allowedRoots {
+		if filepath.Clean(root) == cleanPath {
+			return o
+		}
+	}
+	o.allowedRoots = append(o.allowedRoots, cleanPath)
+	return o
 }
 
 func copyFileMenuEntry(source, destination string) error {
