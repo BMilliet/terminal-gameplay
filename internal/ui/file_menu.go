@@ -8,6 +8,9 @@ import (
 	"sort"
 	"strings"
 
+	"terminal-gameplay/internal/utils"
+
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -15,6 +18,9 @@ const (
 	fileMenuBoxGap       = 2
 	fileMenuBoxChrome    = 4
 	fileMenuMinBoxHeight = 12
+
+	FileMenuPageName = "file-menu"
+	OpenFileAction   = "open-file"
 )
 
 type fileMenuEntryKind int
@@ -32,15 +38,15 @@ type fileMenuEntry struct {
 }
 
 type currentDirectoryReader interface {
-	ReadCurrentDirectory() ([]fileMenuEntry, error)
+	ReadDirectory(path string) ([]fileMenuEntry, error)
 }
 
 type osCurrentDirectoryReader struct{}
 
-func (osCurrentDirectoryReader) ReadCurrentDirectory() ([]fileMenuEntry, error) {
-	entries, err := os.ReadDir(".")
+func (osCurrentDirectoryReader) ReadDirectory(path string) ([]fileMenuEntry, error) {
+	entries, err := os.ReadDir(path)
 	if err != nil {
-		return nil, fmt.Errorf("read current directory: %w", err)
+		return nil, fmt.Errorf("read directory %q: %w", path, err)
 	}
 
 	result := make([]fileMenuEntry, 0, len(entries))
@@ -61,6 +67,70 @@ func (osCurrentDirectoryReader) ReadCurrentDirectory() ([]fileMenuEntry, error) 
 	}
 
 	return result, nil
+}
+
+func (m *MultiPageViewModel) loadFileMenuDirectory(path string) bool {
+	entries, err := m.currentDirectoryReader.ReadDirectory(path)
+	if err != nil {
+		m.fileMenuError = err
+		return false
+	}
+
+	sortFileMenuEntries(entries)
+	m.fileMenuEntries = entries
+	m.fileMenuError = nil
+	m.fileMenuPath = filepath.Clean(path)
+	m.fileMenuCursor = 0
+	return true
+}
+
+func (m MultiPageViewModel) updateFileMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "esc", "q":
+		*m.selected = utils.ExitSignal
+		m.quitting = true
+		return m, tea.Quit
+
+	case "up", "k":
+		if len(m.fileMenuEntries) == 0 {
+			return m, nil
+		}
+		if m.fileMenuCursor > 0 {
+			m.fileMenuCursor--
+		} else {
+			m.fileMenuCursor = len(m.fileMenuEntries) - 1
+		}
+		return m, nil
+
+	case "down", "j":
+		if len(m.fileMenuEntries) == 0 {
+			return m, nil
+		}
+		if m.fileMenuCursor < len(m.fileMenuEntries)-1 {
+			m.fileMenuCursor++
+		} else {
+			m.fileMenuCursor = 0
+		}
+		return m, nil
+
+	case "enter":
+		if len(m.fileMenuEntries) == 0 || m.fileMenuCursor >= len(m.fileMenuEntries) {
+			return m, nil
+		}
+
+		entry := m.fileMenuEntries[m.fileMenuCursor]
+		path := filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
+		if entry.kind == fileMenuDirectory {
+			m.loadFileMenuDirectory(path)
+			return m, nil
+		}
+
+		*m.selected = fmt.Sprintf("%s|%s|%s", FileMenuPageName, OpenFileAction, path)
+		m.quitting = true
+		return m, tea.Quit
+	}
+
+	return m, nil
 }
 
 func classifyFileMenuEntry(name string, isDir bool, mode fs.FileMode) fileMenuEntryKind {
@@ -128,17 +198,17 @@ func (m MultiPageViewModel) renderFileMenu() string {
 }
 
 func (m MultiPageViewModel) renderFileTree() string {
+	rootName := filepath.Base(m.fileMenuPath)
 	lines := []string{
 		lipgloss.NewStyle().
 			Foreground(m.styles.FileMenuDirectoryColor).
-			Render("▾ ."),
+			Render("▾ " + rootName),
 	}
 
 	if m.fileMenuError != nil {
 		lines = append(lines, lipgloss.NewStyle().
 			Foreground(m.styles.ErrorColor).
 			Render("  ! unable to read current directory"))
-		return strings.Join(lines, "\n")
 	}
 
 	labelWidth := (m.contentWidth()-fileMenuBoxGap)/2 - fileMenuBoxChrome - 7
@@ -154,9 +224,15 @@ func (m MultiPageViewModel) renderFileTree() string {
 
 		icon, label, color := m.fileMenuEntryPresentation(entry)
 		label = truncateSingleLine(label, labelWidth)
+		marker := "  "
+		branchColor := m.styles.DividerColor
+		if index == m.fileMenuCursor {
+			marker = "▌ "
+			branchColor = m.styles.SelectedTitleColor
+		}
 		branch := lipgloss.NewStyle().
-			Foreground(m.styles.DividerColor).
-			Render("  " + connector + " ")
+			Foreground(branchColor).
+			Render(marker + connector + " ")
 		iconText := lipgloss.NewStyle().Foreground(color).Render(icon + " ")
 		labelText := lipgloss.NewStyle().Foreground(color).Render(label)
 		lines = append(lines, branch+iconText+labelText)

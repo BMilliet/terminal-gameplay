@@ -20,6 +20,7 @@ A powerful terminal productivity tool that provides quick access to directories,
 
 - Go 1.25.6 or higher
 - Git
+- Neovim (`nvim`) for opening files from the file menu
 - Lua (`lua`, `lua5.4`, `lua5.3`, or `luajit`) for script execution
 
 ### Build from Source
@@ -123,7 +124,9 @@ starts. Pressing `f` from the quick-menu opens the file menu. The file menu is
 shown below the application header without the quick-menu pages. It has two
 side-by-side panels: the left panel lists the current directory as an IDE-like
 file tree, and the right panel is currently empty. Directories, regular files,
-executables, and image files use distinct colors.
+executables, and image files use distinct colors. Use `↑`/`↓` or `j`/`k` to
+move the selector. Press `Enter` on a directory to show its contents, or on a
+file to open it with `nvim`.
 
 In the `env` tab, press `a`, enter the key (such as `FOO`), then enter its value
 (such as `123`). The list shows each saved value and its `active`/`inactive`

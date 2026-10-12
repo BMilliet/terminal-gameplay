@@ -18,14 +18,14 @@ import (
 )
 
 type fakeCurrentDirectoryReader struct {
-	entries []fileMenuEntry
-	err     error
-	calls   int
+	entriesByPath map[string][]fileMenuEntry
+	errorsByPath  map[string]error
+	calls         []string
 }
 
-func (f *fakeCurrentDirectoryReader) ReadCurrentDirectory() ([]fileMenuEntry, error) {
-	f.calls++
-	return f.entries, f.err
+func (f *fakeCurrentDirectoryReader) ReadDirectory(path string) ([]fileMenuEntry, error) {
+	f.calls = append(f.calls, path)
+	return f.entriesByPath[path], f.errorsByPath[path]
 }
 
 func TestHeaderShowsAppVersion(t *testing.T) {
@@ -53,8 +53,8 @@ func TestFKeyOpensFileMenuWithHeaderWithoutQuickMenuPages(t *testing.T) {
 	if model.currentMenu != FileMenu {
 		t.Fatalf("current menu = %v, want FileMenu", model.currentMenu)
 	}
-	if reader.calls != 1 {
-		t.Fatalf("current directory read calls = %d, want 1", reader.calls)
+	if len(reader.calls) != 1 || reader.calls[0] != "." {
+		t.Fatalf("directory read calls = %#v, want [.]", reader.calls)
 	}
 	view := model.View()
 	if !strings.Contains(view, "terminal-gameplay") || !strings.Contains(view, "v"+version.AppVersion) {
@@ -74,11 +74,13 @@ func TestFileMenuShowsTwoSideBySideBoxesAndColoredFileTree(t *testing.T) {
 		lipgloss.SetColorProfile(previousProfile)
 	})
 
-	reader := &fakeCurrentDirectoryReader{entries: []fileMenuEntry{
-		{name: "notes.txt", kind: fileMenuRegularFile},
-		{name: "preview.PNG", kind: fileMenuImage},
-		{name: "run-tool", kind: fileMenuExecutable},
-		{name: "assets", kind: fileMenuDirectory},
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {
+			{name: "notes.txt", kind: fileMenuRegularFile},
+			{name: "preview.PNG", kind: fileMenuImage},
+			{name: "run-tool", kind: fileMenuExecutable},
+			{name: "assets", kind: fileMenuDirectory},
+		},
 	}}
 	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
 	model.currentDirectoryReader = reader
@@ -119,6 +121,94 @@ func TestFileMenuShowsTwoSideBySideBoxesAndColoredFileTree(t *testing.T) {
 
 	if directoryIndex, fileIndex := strings.Index(view, "assets/"), strings.Index(view, "notes.txt"); directoryIndex < 0 || fileIndex < 0 || directoryIndex > fileIndex {
 		t.Fatalf("directory should be shown before files: %q", view)
+	}
+}
+
+func TestFileMenuSelectorMovesThroughEntries(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {
+			{name: "notes.txt", kind: fileMenuRegularFile},
+			{name: "assets", kind: fileMenuDirectory},
+		},
+	}}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	model = updated.(MultiPageViewModel)
+	if model.fileMenuCursor != 0 {
+		t.Fatalf("initial file menu cursor = %d, want 0", model.fileMenuCursor)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(MultiPageViewModel)
+	if model.fileMenuCursor != 1 {
+		t.Fatalf("file menu cursor after down = %d, want 1", model.fileMenuCursor)
+	}
+	selectedRowFound := false
+	for _, line := range strings.Split(model.View(), "\n") {
+		if strings.Contains(line, "notes.txt") {
+			selectedRowFound = true
+			if !strings.Contains(line, "▌") {
+				t.Fatalf("selected file row does not show selector: %q", line)
+			}
+		}
+	}
+	if !selectedRowFound {
+		t.Fatal("selected file row was not rendered")
+	}
+}
+
+func TestFileMenuEnterOnDirectoryShowsItsContents(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {
+			{name: "projects", kind: fileMenuDirectory},
+		},
+		"projects": {
+			{name: "main.go", kind: fileMenuRegularFile},
+		},
+	}}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	model = updated.(MultiPageViewModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(MultiPageViewModel)
+
+	if model.fileMenuPath != "projects" {
+		t.Fatalf("file menu path = %q, want projects", model.fileMenuPath)
+	}
+	if len(reader.calls) != 2 || reader.calls[0] != "." || reader.calls[1] != "projects" {
+		t.Fatalf("directory read calls = %#v, want [., projects]", reader.calls)
+	}
+	if view := model.View(); !strings.Contains(view, "main.go") || !strings.Contains(view, "▾ projects") {
+		t.Fatalf("file menu does not show selected directory contents: %q", view)
+	}
+}
+
+func TestFileMenuEnterOnFileReturnsNvimAction(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {
+			{name: "notes.txt", kind: fileMenuRegularFile},
+		},
+	}}
+	selected := ""
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+	model.selected = &selected
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	model = updated.(MultiPageViewModel)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(MultiPageViewModel)
+
+	want := FileMenuPageName + "|" + OpenFileAction + "|notes.txt"
+	if selected != want {
+		t.Fatalf("selected action = %q, want %q", selected, want)
+	}
+	if !model.quitting {
+		t.Fatal("file menu should quit before handing the file to the runner")
 	}
 }
 

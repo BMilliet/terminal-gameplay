@@ -75,6 +75,8 @@ type MultiPageViewModel struct {
 	currentPage            PageType
 	fileMenuEntries        []fileMenuEntry
 	fileMenuError          error
+	fileMenuPath           string
+	fileMenuCursor         int
 	frequentList           []utils.ListItem
 	goToList               []utils.ListItem
 	scriptList             []utils.ListItem
@@ -160,6 +162,7 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 		currentDirectoryReader: osCurrentDirectoryReader{},
 		currentMenu:            QuickMenu,
 		currentPage:            currentPage,
+		fileMenuPath:           ".",
 		frequentList:           frequentList,
 		goToList:               gototab.BuildList(config.GoTo),
 		scriptList:             scripts.BuildList(config.Scripts),
@@ -211,20 +214,12 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		if m.currentMenu == FileMenu {
-			switch msg.String() {
-			case "ctrl+c", "esc", "q":
-				*m.selected = utils.ExitSignal
-				m.quitting = true
-				return m, tea.Quit
-			default:
-				return m, nil
-			}
+			return m.updateFileMenu(msg)
 		}
 
 		if !m.searchMode && msg.String() == "f" {
 			m.pendingDelete = false
-			m.fileMenuEntries, m.fileMenuError = m.currentDirectoryReader.ReadCurrentDirectory()
-			sortFileMenuEntries(m.fileMenuEntries)
+			m.loadFileMenuDirectory(".")
 			m.currentMenu = FileMenu
 			return m, nil
 		}
