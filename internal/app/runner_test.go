@@ -16,6 +16,7 @@ import (
 	"terminal-gameplay/internal/scripts"
 	"terminal-gameplay/internal/settings"
 	toolstab "terminal-gameplay/internal/tools"
+	"terminal-gameplay/internal/ui"
 	"terminal-gameplay/internal/utils"
 )
 
@@ -338,6 +339,22 @@ func TestStartGoToWritesCommandAndFrequencyWithMocks(t *testing.T) {
 	mustUnmarshalJSON(t, last(t, fm.featuresWrites), &savedFeatures)
 	if got := savedFeatures.Frequencies["work"]; got != 1 {
 		t.Fatalf("saved frequency = %d, want 1", got)
+	}
+}
+
+func TestStartFileMenuOpensSelectedFileInNvimWithMock(t *testing.T) {
+	fm := newFakeFileManager()
+	fm.configContent = mustJSON(t, &utils.ConfigDTO{})
+	fm.featuresContent = mustJSON(t, &settings.FeaturesDTO{})
+	runtime := newFakeRuntime()
+	views := &fakeViewBuilder{
+		multiPageResults: []string{ui.FileMenuPageName + "|" + ui.OpenFileAction + "|src/main.go"},
+	}
+
+	NewRunner(fm, runtime, views).Start()
+
+	if got, want := runtime.openedInNvim, []string{"src/main.go"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("OpenInNvim calls = %#v, want %#v", got, want)
 	}
 }
 

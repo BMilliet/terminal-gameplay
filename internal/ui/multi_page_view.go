@@ -24,14 +24,15 @@ import (
 )
 
 const (
-	defaultContentWidth = 112
-	minContentWidth     = 72
-	screenGutterWidth   = 4
-	rowChromeWidth      = 4
-	toggleStatusDivider = " · "
-	toggleValueWidth    = 32
-	headerTickDuration  = 140 * time.Millisecond
-	gradientSteps       = 14
+	defaultContentWidth   = 112
+	defaultTerminalHeight = 40
+	minContentWidth       = 72
+	screenGutterWidth     = 4
+	rowChromeWidth        = 4
+	toggleStatusDivider   = " · "
+	toggleValueWidth      = 32
+	headerTickDuration    = 140 * time.Millisecond
+	gradientSteps         = 14
 )
 
 var headerGradientPalette = []string{
@@ -44,6 +45,13 @@ var headerGradientPalette = []string{
 }
 
 type headerTickMsg time.Time
+
+type MenuType int
+
+const (
+	QuickMenu MenuType = iota
+	FileMenu
+)
 
 type PageType int
 
@@ -61,30 +69,55 @@ const (
 )
 
 type MultiPageViewModel struct {
-	config        *utils.ConfigDTO
-	features      *settings.FeaturesDTO
-	currentPage   PageType
-	frequentList  []utils.ListItem
-	goToList      []utils.ListItem
-	scriptList    []utils.ListItem
-	notesList     []utils.ListItem
-	clipboardList []utils.ListItem
-	envList       []utils.ListItem
-	aliasList     []utils.ListItem
-	toolsList     []utils.ListItem
-	settingsList  []utils.ListItem
-	featuresList  []utils.ListItem
-	availPages    []PageType
-	pageIndex     int
-	cursor        int
-	viewportStart int // First visible item index for scrolling
-	maxVisible    int // Maximum items to show at once
-	selected      *string
-	quitting      bool
-	styles        *Styles
-	terminalWidth int
-	headerFrame   int
-	pendingDelete bool
+	config                 *utils.ConfigDTO
+	features               *settings.FeaturesDTO
+	currentDirectoryReader currentDirectoryReader
+	fileMenuOperator       fileMenuOperator
+	currentMenu            MenuType
+	currentPage            PageType
+	fileMenuBaseEntries    []fileMenuEntry
+	fileMenuEntries        []fileMenuEntry
+	fileMenuError          error
+	fileMenuPath           string
+	fileMenuCursor         int
+	fileMenuPreview        fileMenuPreview
+	fileMenuMode           fileMenuMode
+	fileMenuVisualAnchor   int
+	fileMenuInput          string
+	fileMenuInputCursor    int
+	fileMenuInputAction    fileMenuInputAction
+	fileMenuInputSource    string
+	fileMenuInputKind      fileMenuEntryKind
+	fileMenuCommand        string
+	fileMenuPendingKey     string
+	fileMenuStatus         string
+	fileMenuOperations     []fileMenuOperation
+	fileMenuClipboard      []fileMenuClipboardEntry
+	fileMenuClipboardMove  bool
+	fileMenuClipboardCut   bool
+	fileMenuProcessFrame   int
+	frequentList           []utils.ListItem
+	goToList               []utils.ListItem
+	scriptList             []utils.ListItem
+	notesList              []utils.ListItem
+	clipboardList          []utils.ListItem
+	envList                []utils.ListItem
+	aliasList              []utils.ListItem
+	toolsList              []utils.ListItem
+	settingsList           []utils.ListItem
+	featuresList           []utils.ListItem
+	availPages             []PageType
+	pageIndex              int
+	cursor                 int
+	viewportStart          int // First visible item index for scrolling
+	maxVisible             int // Maximum items to show at once
+	selected               *string
+	quitting               bool
+	styles                 *Styles
+	terminalWidth          int
+	terminalHeight         int
+	headerFrame            int
+	pendingDelete          bool
 	// Fuzzy find state
 	searchMode   bool
 	searchQuery  string
@@ -144,30 +177,35 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 	}
 
 	m := MultiPageViewModel{
-		config:        config,
-		features:      features,
-		currentPage:   currentPage,
-		frequentList:  frequentList,
-		goToList:      gototab.BuildList(config.GoTo),
-		scriptList:    scripts.BuildList(config.Scripts),
-		notesList:     notes.BuildList(config.Notes),
-		clipboardList: clipboard.BuildList(config.Clipboard),
-		envList:       envtab.BuildList(config.Env),
-		aliasList:     aliastab.BuildList(config.Aliases),
-		toolsList:     toolsList,
-		settingsList:  settingsList,
-		featuresList:  featuresList,
-		availPages:    availPages,
-		pageIndex:     pageIndex,
-		cursor:        0,
-		viewportStart: 0,
-		maxVisible:    10,
-		quitting:      false,
-		styles:        DefaultStyles(),
-		terminalWidth: defaultContentWidth + screenGutterWidth,
-		searchMode:    false,
-		searchQuery:   "",
-		filteredList:  []utils.ListItem{},
+		config:                 config,
+		features:               features,
+		currentDirectoryReader: osCurrentDirectoryReader{},
+		fileMenuOperator:       osFileMenuOperator{root: "."},
+		currentMenu:            QuickMenu,
+		currentPage:            currentPage,
+		fileMenuPath:           ".",
+		frequentList:           frequentList,
+		goToList:               gototab.BuildList(config.GoTo),
+		scriptList:             scripts.BuildList(config.Scripts),
+		notesList:              notes.BuildList(config.Notes),
+		clipboardList:          clipboard.BuildList(config.Clipboard),
+		envList:                envtab.BuildList(config.Env),
+		aliasList:              aliastab.BuildList(config.Aliases),
+		toolsList:              toolsList,
+		settingsList:           settingsList,
+		featuresList:           featuresList,
+		availPages:             availPages,
+		pageIndex:              pageIndex,
+		cursor:                 0,
+		viewportStart:          0,
+		maxVisible:             10,
+		quitting:               false,
+		styles:                 DefaultStyles(),
+		terminalWidth:          defaultContentWidth + screenGutterWidth,
+		terminalHeight:         defaultTerminalHeight,
+		searchMode:             false,
+		searchQuery:            "",
+		filteredList:           []utils.ListItem{},
 	}
 
 	// Move cursor to first non-divider item
@@ -187,6 +225,7 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.terminalWidth = msg.Width
+		m.terminalHeight = msg.Height
 		return m, nil
 
 	case headerTickMsg:
@@ -194,9 +233,29 @@ func (m MultiPageViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.headerFrame++
+		if m.currentMenu == FileMenu && m.fileMenuMode == fileMenuProcessingMode {
+			m.fileMenuProcessFrame++
+		}
 		return m, tickHeader()
 
+	case fileMenuOperationFinishedMsg:
+		if m.currentMenu == FileMenu {
+			m.finishFileMenuOperations(msg.err)
+		}
+		return m, nil
+
 	case tea.KeyMsg:
+		if m.currentMenu == FileMenu {
+			return m.updateFileMenu(msg)
+		}
+
+		if !m.searchMode && msg.String() == "f" {
+			m.pendingDelete = false
+			m.loadFileMenuDirectory(".")
+			m.currentMenu = FileMenu
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "ctrl+c":
 			*m.selected = utils.ExitSignal
@@ -478,6 +537,9 @@ func (m MultiPageViewModel) View() string {
 	if m.quitting {
 		return ""
 	}
+	if m.currentMenu == FileMenu {
+		return m.renderHeader() + m.renderFileMenu()
+	}
 
 	var b strings.Builder
 	b.WriteString(m.renderHeader())
@@ -532,7 +594,6 @@ func (m MultiPageViewModel) renderHeader() string {
 		Foreground(m.styles.FooterColor).
 		Faint(true).
 		Render(" v" + version.AppVersion)
-	page := m.renderGradientText(m.getPageName(), 44, false)
 
 	meta := lipgloss.JoinHorizontal(
 		lipgloss.Center,
@@ -540,12 +601,18 @@ func (m MultiPageViewModel) renderHeader() string {
 		" ",
 		context,
 		versionLabel,
-		m.styles.Text(" / ", m.styles.DividerColor),
-		page,
 	)
 
 	b.WriteString("\n")
 	b.WriteString(meta)
+	if m.currentMenu == FileMenu {
+		b.WriteString("\n\n")
+		return b.String()
+	}
+
+	page := m.renderGradientText(m.getPageName(), 44, false)
+	b.WriteString(m.styles.Text(" / ", m.styles.DividerColor))
+	b.WriteString(page)
 	b.WriteString("\n")
 	b.WriteString(m.renderTabs())
 	b.WriteString("\n\n")

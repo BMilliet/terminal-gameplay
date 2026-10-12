@@ -145,6 +145,14 @@ func (r *Runner) Start() {
 
 		// Handle based on page type
 		switch page {
+		case ui.FileMenuPageName:
+			if label == ui.OpenFileAction {
+				if err := r.runtime.OpenInNvim(value); err != nil {
+					r.runtime.HandleError(err, "Failed to open file in nvim")
+				}
+			}
+			return
+
 		case settings.PageName:
 			// Handle settings toggle
 			switch label {

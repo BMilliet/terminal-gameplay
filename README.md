@@ -12,6 +12,7 @@ A powerful terminal productivity tool that provides quick access to directories,
 - 🔐 **Env**: Activate or deactivate environment variables in your current shell
 - 🔗 **Alias**: Activate or deactivate command aliases in your current shell
 - 🔎 **Fuzzy Search**: Find files and directories under the current directory or `$WORKSPACE` without an external `fzf` dependency
+- 📁 **File Menu**: Inspect the current directory in an IDE-like, color-coded file tree
 
 ## Installation
 
@@ -19,6 +20,7 @@ A powerful terminal productivity tool that provides quick access to directories,
 
 - Go 1.25.6 or higher
 - Git
+- Neovim (`nvim`) for opening files from the file menu
 - Lua (`lua`, `lua5.4`, `lua5.3`, or `luajit`) for script execution
 
 ### Build from Source
@@ -114,7 +116,76 @@ This will launch the interactive TUI where you can:
 1. **Navigate** using arrow keys or `j`/`k`
 2. **Switch pages** using left/right arrows or `h`/`l`
 3. **Search** by pressing `/` to activate fuzzy-find mode
-4. **Select** an item by pressing Enter
+4. **Open the file menu** by pressing `f`
+5. **Select** an item by pressing Enter
+
+The existing pages and lists form the **quick-menu**, which is shown when `tg`
+starts. Pressing `f` from the quick-menu opens the file menu. The file menu is
+shown below the application header without the quick-menu pages. It has two
+side-by-side panels: the left panel lists the current directory as an IDE-like
+file tree, and the right panel previews the selected item. Directories show a
+reduced tree of up to 16 immediate children, while text files show a sanitized
+preview of up to 4 KiB and 16 lines. Truncated previews end with `…`, and binary
+files are identified without printing their raw contents. Directories, regular
+files, executables, and image files use distinct colors. Use `↑`/`↓` or `j`/`k`
+to move the selector. Press `Enter` on a directory to show its contents, or on
+a file to open it with `nvim`. Press `→` as another option for entering the
+selected directory; unlike `Enter`, it does nothing on files. Press `←` to
+return to the previous directory; at the directory where `tg` started, `←`
+does nothing.
+
+Filesystem changes in the file menu follow an Oil/Vim-inspired staged workflow:
+
+- `a` or `o` inserts an editable line directly in the tree, including inside an
+  empty directory. End the name with `/` to create a directory. Pressing `Esc`
+  leaves the new entry buffered for `:w`; an empty line is discarded.
+- `i` edits the selected entry name or relative path. `Ctrl+U` clears the input,
+  which is useful when moving or renaming it. The inline block cursor can be
+  moved with `←`/`→`, `Home`, and `End`; `Backspace` and `Delete` edit around
+  its current position.
+- `Shift+V` enters Visual Line mode (`v` is also accepted). Extend the selection
+  with `j`/`k` or the arrow keys, then press `y` to copy, `m` to mark for moving,
+  or `d` to cut the selected entries. The active line uses a block cursor, while
+  the other selected lines use selection markers.
+- In Normal mode, `yy`, `mm`, and `dd` act on the current entry. Like Vim,
+  `dd` removes the line but keeps the entry in the register: navigate to another
+  directory and press `p` to turn the pending deletion into a move. Pasting in
+  the original directory restores the line. Saving without pasting confirms the
+  deletion.
+- `:w` reviews all pending filesystem operations and asks for confirmation
+  before applying them. `:q!` discards pending changes and exits. `Esc` leaves
+  Insert mode while keeping typed edits, and cancels Visual, Command, or
+  confirmation mode.
+
+No create, copy, move, or delete operation touches the filesystem before the
+`:w` confirmation. Copying beside the source automatically adds a `-copy`
+suffix. Pending destinations appear immediately in the tree with a `+`, while
+renames, moves, and deletions are also projected in the list before saving. All
+edited paths are constrained to the directory where `tg` started.
+
+Below the file tree and preview, three compact panels provide live context:
+
+- **Process** shows an animated progress bar while `:w` applies filesystem
+  operations. Saves run asynchronously, so long copies or recursive directory
+  deletions do not freeze the TUI.
+- **Metadata** shows the selected entry's name, size, permissions, and last
+  modification time.
+- **Memory** lists the paths currently held in the Vim-style register by `yy`,
+  `dd`, or a Visual mode operation. Long registers are truncated to fit the
+  panel.
+
+The file-system mode fills the terminal height by default. Its upper panels use
+the remaining vertical space and keep a fixed size while navigating between
+directories with different numbers of entries. Long trees scroll within that
+fixed viewport so the active block cursor always remains visible. The layout is
+recalculated only when the terminal itself is resized.
+
+The preview is constrained to exactly the same inner width and height as the
+file-tree panel. Long names and content lines are truncated before rendering,
+then excess lines are clipped, preventing terminal wrapping from changing the
+height of either main panel. A final post-render limit also measures the boxes
+after wrapping, padding, colors, and borders have been applied; overflow is
+removed while preserving the bottom border.
 
 In the `env` tab, press `a`, enter the key (such as `FOO`), then enter its value
 (such as `123`). The list shows each saved value and its `active`/`inactive`
