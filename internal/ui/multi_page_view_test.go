@@ -753,7 +753,7 @@ func TestFileMenuEnterOnFileReturnsNvimAction(t *testing.T) {
 		".": {
 			{name: "notes.txt", kind: fileMenuRegularFile},
 		},
-	}}
+	}, fileContentsByPath: map[string][]byte{"notes.txt": []byte("plain text\n")}}
 	selected := ""
 	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
 	model.currentDirectoryReader = reader
@@ -770,6 +770,30 @@ func TestFileMenuEnterOnFileReturnsNvimAction(t *testing.T) {
 	}
 	if !model.quitting {
 		t.Fatal("file menu should quit before handing the file to the runner")
+	}
+}
+
+func TestFileMenuEnterOnBinaryFileShowsWarningWithoutOpeningNvim(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{
+		entriesByPath: map[string][]fileMenuEntry{
+			".": {{name: "document.pdf", kind: fileMenuRegularFile}},
+		},
+		fileContentsByPath: map[string][]byte{
+			"document.pdf": []byte("%PDF-1.7\n1 0 obj\n"),
+		},
+	}
+	selected := ""
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+	model.selected = &selected
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), tea.KeyMsg{Type: tea.KeyEnter})
+
+	if selected != "" || model.quitting {
+		t.Fatalf("binary file opened nvim: selected=%q quitting=%v", selected, model.quitting)
+	}
+	if !strings.Contains(model.fileMenuStatus, "only text files") {
+		t.Fatalf("binary file warning = %q, want text-only explanation", model.fileMenuStatus)
 	}
 }
 

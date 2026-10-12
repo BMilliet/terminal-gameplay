@@ -131,10 +131,11 @@ executables, and image files use distinct colors. Use `↑`/`↓` or `j`/`k`
 to move between entries, `gg` to jump to the first entry, and `Shift+G` to jump
 to the last entry. The active entry has a Vim-style block cursor inside its
 name; move it with `h`/`l`, `0`/`$`, or `Home`/`End`. Press `Enter` on a
-directory to show its contents, or on a file to open it with `nvim`. Press `→`
-as another option for entering the selected directory; unlike `Enter`, it does
-nothing on files. Press `←` to return to the previous directory; at the
-directory where `tg` started, `←` does nothing.
+directory to show its contents, or on a text file to open it with `nvim`.
+Binary files and other non-text formats remain selected and show a warning
+instead of opening. Press `→` as another option for entering the selected
+directory; unlike `Enter`, it does nothing on files. Press `←` to return to the
+previous directory; at the directory where `tg` started, `←` does nothing.
 
 The Places panel has a **Pinned** section for the directory where `tg` was
 started and a **Home** section with the fixed `Downloads`, `Desktop`, and

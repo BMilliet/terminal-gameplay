@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -501,6 +502,14 @@ func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea
 		}
 		if len(m.fileMenuOperations) > 0 {
 			m.fileMenuStatus = "save or discard pending changes before opening a file"
+			return m, nil
+		}
+		if m.fileMenuPreview.err != nil {
+			m.fileMenuStatus = "warning: unable to verify that the selected file is text"
+			return m, nil
+		}
+		if m.fileMenuPreview.binary {
+			m.fileMenuStatus = "warning: only text files can be opened in nvim"
 			return m, nil
 		}
 
@@ -1266,6 +1275,13 @@ func sortFileMenuEntries(entries []fileMenuEntry) {
 
 func sanitizeFilePreview(content []byte, maxLines int) (string, bool, bool) {
 	if bytes.IndexByte(content, 0) >= 0 || !utf8.Valid(content) {
+		return "", true, false
+	}
+	contentType := http.DetectContentType(content)
+	if !strings.HasPrefix(contentType, "text/") &&
+		contentType != "application/json" &&
+		contentType != "application/xml" &&
+		contentType != "application/javascript" {
 		return "", true, false
 	}
 
