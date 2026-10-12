@@ -132,6 +132,35 @@ to move the selector. Press `Enter` on a directory to show its contents, or on
 a file to open it with `nvim`. Press `←` to return to the previous directory;
 at the directory where `tg` started, `←` does nothing.
 
+Filesystem changes in the file menu follow an Oil/Vim-inspired staged workflow:
+
+- `a` or `o` inserts an editable line directly in the tree, including inside an
+  empty directory. End the name with `/` to create a directory. Pressing `Esc`
+  leaves the new entry buffered for `:w`; an empty line is discarded.
+- `i` edits the selected entry name or relative path. `Ctrl+U` clears the input,
+  which is useful when moving or renaming it. The inline block cursor can be
+  moved with `←`/`→`, `Home`, and `End`; `Backspace` and `Delete` edit around
+  its current position.
+- `Shift+V` enters Visual Line mode (`v` is also accepted). Extend the selection
+  with `j`/`k` or the arrow keys, then press `y` to copy, `m` to mark for moving,
+  or `d` to cut the selected entries. The active line uses a block cursor, while
+  the other selected lines use selection markers.
+- In Normal mode, `yy`, `mm`, and `dd` act on the current entry. Like Vim,
+  `dd` removes the line but keeps the entry in the register: navigate to another
+  directory and press `p` to turn the pending deletion into a move. Pasting in
+  the original directory restores the line. Saving without pasting confirms the
+  deletion.
+- `:w` reviews all pending filesystem operations and asks for confirmation
+  before applying them. `:q!` discards pending changes and exits. `Esc` leaves
+  Insert mode while keeping typed edits, and cancels Visual, Command, or
+  confirmation mode.
+
+No create, copy, move, or delete operation touches the filesystem before the
+`:w` confirmation. Copying beside the source automatically adds a `-copy`
+suffix. Pending destinations appear immediately in the tree with a `+`, while
+renames, moves, and deletions are also projected in the list before saving. All
+edited paths are constrained to the directory where `tg` started.
+
 In the `env` tab, press `a`, enter the key (such as `FOO`), then enter its value
 (such as `123`). The list shows each saved value and its `active`/`inactive`
 state. Press Enter on an env key to toggle that state. Active keys are exported

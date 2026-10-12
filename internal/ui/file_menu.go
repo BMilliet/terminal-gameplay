@@ -40,8 +40,9 @@ const (
 )
 
 type fileMenuEntry struct {
-	name string
-	kind fileMenuEntryKind
+	name    string
+	kind    fileMenuEntryKind
+	pending bool
 }
 
 type fileMenuPreview struct {
@@ -50,6 +51,7 @@ type fileMenuPreview struct {
 	content      string
 	truncated    bool
 	binary       bool
+	pending      bool
 	err          error
 	hasSelection bool
 }
@@ -138,10 +140,13 @@ func (m *MultiPageViewModel) loadFileMenuDirectory(path string) bool {
 	}
 
 	sortFileMenuEntries(entries)
-	m.fileMenuEntries = entries
+	m.fileMenuBaseEntries = append([]fileMenuEntry(nil), entries...)
 	m.fileMenuError = nil
 	m.fileMenuPath = filepath.Clean(path)
 	m.fileMenuCursor = 0
+	m.fileMenuVisualAnchor = 0
+	m.fileMenuPendingKey = ""
+	m.rebuildFileMenuEntries()
 	m.refreshFileMenuPreview()
 	return true
 }
@@ -154,7 +159,11 @@ func (m *MultiPageViewModel) refreshFileMenuPreview() {
 
 	entry := m.fileMenuEntries[m.fileMenuCursor]
 	path := filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
-	preview := fileMenuPreview{entry: entry, hasSelection: true}
+	preview := fileMenuPreview{entry: entry, hasSelection: true, pending: entry.pending}
+	if entry.pending {
+		m.fileMenuPreview = preview
+		return
+	}
 	if entry.kind == fileMenuDirectory {
 		preview.directory, preview.truncated, preview.err = m.currentDirectoryReader.ReadDirectoryPreview(path, fileMenuPreviewMaxEntries)
 		sortFileMenuEntries(preview.directory)
@@ -172,34 +181,70 @@ func (m *MultiPageViewModel) refreshFileMenuPreview() {
 }
 
 func (m MultiPageViewModel) updateFileMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c", "esc", "q":
+	if msg.String() == "ctrl+c" {
 		*m.selected = utils.ExitSignal
 		m.quitting = true
 		return m, tea.Quit
+	}
 
-	case "up", "k":
-		if len(m.fileMenuEntries) == 0 {
+	switch m.fileMenuMode {
+	case fileMenuInsertMode:
+		m.updateFileMenuInsert(msg)
+		return m, nil
+	case fileMenuVisualMode:
+		m.updateFileMenuVisual(msg)
+		return m, nil
+	case fileMenuCommandMode:
+		return m.updateFileMenuCommand(msg)
+	case fileMenuConfirmMode:
+		m.updateFileMenuConfirmation(msg)
+		return m, nil
+	default:
+		return m.updateFileMenuNormal(msg)
+	}
+}
+
+func (m MultiPageViewModel) updateFileMenuNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if key == "d" || key == "y" || key == "m" {
+		if m.fileMenuPendingKey != key {
+			m.fileMenuPendingKey = key
+			m.fileMenuStatus = key
 			return m, nil
 		}
-		if m.fileMenuCursor > 0 {
-			m.fileMenuCursor--
-		} else {
-			m.fileMenuCursor = len(m.fileMenuEntries) - 1
+
+		m.fileMenuPendingKey = ""
+		switch key {
+		case "d":
+			m.stageFileMenuDelete(m.selectedFileMenuEntries())
+		case "y":
+			m.setFileMenuClipboard(m.selectedFileMenuEntries(), false)
+		case "m":
+			m.setFileMenuClipboard(m.selectedFileMenuEntries(), true)
 		}
-		m.refreshFileMenuPreview()
+		return m, nil
+	}
+	m.fileMenuPendingKey = ""
+
+	switch key {
+	case "q":
+		if len(m.fileMenuOperations) > 0 {
+			m.fileMenuStatus = "pending changes; use :w to save or :q! to discard"
+			return m, nil
+		}
+		*m.selected = utils.ExitSignal
+		m.quitting = true
+		return m, tea.Quit
+	case "esc":
+		m.fileMenuStatus = ""
+		return m, nil
+
+	case "up", "k":
+		m.moveFileMenuCursor(-1)
 		return m, nil
 
 	case "down", "j":
-		if len(m.fileMenuEntries) == 0 {
-			return m, nil
-		}
-		if m.fileMenuCursor < len(m.fileMenuEntries)-1 {
-			m.fileMenuCursor++
-		} else {
-			m.fileMenuCursor = 0
-		}
-		m.refreshFileMenuPreview()
+		m.moveFileMenuCursor(1)
 		return m, nil
 
 	case "left":
@@ -220,13 +265,572 @@ func (m MultiPageViewModel) updateFileMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 			m.loadFileMenuDirectory(path)
 			return m, nil
 		}
+		if len(m.fileMenuOperations) > 0 {
+			m.fileMenuStatus = "save or discard pending changes before opening a file"
+			return m, nil
+		}
 
 		*m.selected = fmt.Sprintf("%s|%s|%s", FileMenuPageName, OpenFileAction, path)
 		m.quitting = true
 		return m, tea.Quit
+
+	case "v", "V":
+		if len(m.fileMenuEntries) > 0 {
+			m.fileMenuMode = fileMenuVisualMode
+			m.fileMenuVisualAnchor = m.fileMenuCursor
+			m.fileMenuStatus = "visual line selection"
+		}
+		return m, nil
+
+	case "o", "a":
+		m.fileMenuMode = fileMenuInsertMode
+		m.fileMenuInputAction = fileMenuCreateInput
+		m.fileMenuInput = ""
+		m.fileMenuInputCursor = 0
+		m.fileMenuInputSource = ""
+		m.fileMenuStatus = "new entry; end with / for a directory"
+		return m, nil
+
+	case "i":
+		if len(m.fileMenuEntries) == 0 || m.fileMenuCursor >= len(m.fileMenuEntries) {
+			return m, nil
+		}
+		entry := m.fileMenuEntries[m.fileMenuCursor]
+		m.fileMenuMode = fileMenuInsertMode
+		m.fileMenuInputAction = fileMenuRenameInput
+		m.fileMenuInput = entry.name
+		m.fileMenuInputCursor = len([]rune(entry.name))
+		m.fileMenuInputSource = filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
+		m.fileMenuInputKind = entry.kind
+		m.fileMenuStatus = "edit name or relative path"
+		return m, nil
+
+	case "p":
+		m.stageFileMenuPaste()
+		return m, nil
+
+	case ":":
+		m.fileMenuMode = fileMenuCommandMode
+		m.fileMenuCommand = ""
+		m.fileMenuStatus = ""
+		return m, nil
 	}
 
 	return m, nil
+}
+
+func (m *MultiPageViewModel) updateFileMenuVisual(msg tea.KeyMsg) {
+	switch msg.String() {
+	case "esc", "v", "V":
+		m.fileMenuMode = fileMenuNormalMode
+		m.fileMenuStatus = ""
+	case "up", "k":
+		m.moveFileMenuCursor(-1)
+	case "down", "j":
+		m.moveFileMenuCursor(1)
+	case "y":
+		m.setFileMenuClipboard(m.selectedFileMenuEntries(), false)
+		m.fileMenuMode = fileMenuNormalMode
+	case "m":
+		m.setFileMenuClipboard(m.selectedFileMenuEntries(), true)
+		m.fileMenuMode = fileMenuNormalMode
+	case "d":
+		m.stageFileMenuDelete(m.selectedFileMenuEntries())
+		m.fileMenuMode = fileMenuNormalMode
+	}
+}
+
+func (m *MultiPageViewModel) updateFileMenuInsert(msg tea.KeyMsg) {
+	switch msg.String() {
+	case "esc":
+		if strings.TrimSpace(m.fileMenuInput) == "" && m.fileMenuInputAction == fileMenuCreateInput {
+			m.fileMenuMode = fileMenuNormalMode
+			m.fileMenuInput = ""
+			m.fileMenuInputCursor = 0
+			m.fileMenuStatus = "empty edit discarded"
+			return
+		}
+		if err := m.commitFileMenuInput(); err != nil {
+			m.fileMenuStatus = err.Error()
+			return
+		}
+		m.fileMenuMode = fileMenuNormalMode
+		m.fileMenuInput = ""
+		m.fileMenuInputCursor = 0
+		return
+	case "left":
+		if m.fileMenuInputCursor > 0 {
+			m.fileMenuInputCursor--
+		}
+		return
+	case "right":
+		if m.fileMenuInputCursor < len([]rune(m.fileMenuInput)) {
+			m.fileMenuInputCursor++
+		}
+		return
+	case "home":
+		m.fileMenuInputCursor = 0
+		return
+	case "end":
+		m.fileMenuInputCursor = len([]rune(m.fileMenuInput))
+		return
+	case "backspace":
+		runes := []rune(m.fileMenuInput)
+		if m.fileMenuInputCursor > 0 {
+			position := m.fileMenuInputCursor
+			m.fileMenuInput = string(append(runes[:position-1], runes[position:]...))
+			m.fileMenuInputCursor--
+		}
+		return
+	case "delete":
+		runes := []rune(m.fileMenuInput)
+		if m.fileMenuInputCursor < len(runes) {
+			position := m.fileMenuInputCursor
+			m.fileMenuInput = string(append(runes[:position], runes[position+1:]...))
+		}
+		return
+	case "ctrl+u":
+		m.fileMenuInput = ""
+		m.fileMenuInputCursor = 0
+		return
+	case "enter":
+		if err := m.commitFileMenuInput(); err != nil {
+			m.fileMenuStatus = err.Error()
+			return
+		}
+		m.fileMenuMode = fileMenuNormalMode
+		m.fileMenuInput = ""
+		m.fileMenuInputCursor = 0
+		return
+	}
+
+	if msg.Type == tea.KeyRunes {
+		runes := []rune(m.fileMenuInput)
+		position := m.fileMenuInputCursor
+		inserted := append([]rune(nil), msg.Runes...)
+		runes = append(runes[:position], append(inserted, runes[position:]...)...)
+		m.fileMenuInput = string(runes)
+		m.fileMenuInputCursor += len(inserted)
+	}
+}
+
+func (m MultiPageViewModel) updateFileMenuCommand(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.fileMenuMode = fileMenuNormalMode
+		m.fileMenuCommand = ""
+		return m, nil
+	case "backspace":
+		runes := []rune(m.fileMenuCommand)
+		if len(runes) > 0 {
+			m.fileMenuCommand = string(runes[:len(runes)-1])
+		}
+		return m, nil
+	case "enter":
+		command := strings.TrimSpace(m.fileMenuCommand)
+		m.fileMenuCommand = ""
+		switch command {
+		case "w":
+			if len(m.fileMenuOperations) == 0 {
+				m.fileMenuMode = fileMenuNormalMode
+				m.fileMenuStatus = "no pending changes"
+				return m, nil
+			}
+			m.fileMenuMode = fileMenuConfirmMode
+			m.fileMenuStatus = fmt.Sprintf("apply %d pending operation(s)? y/n", len(m.fileMenuOperations))
+			return m, nil
+		case "q":
+			if len(m.fileMenuOperations) > 0 {
+				m.fileMenuMode = fileMenuNormalMode
+				m.fileMenuStatus = "pending changes; use :w or :q!"
+				return m, nil
+			}
+			*m.selected = utils.ExitSignal
+			m.quitting = true
+			return m, tea.Quit
+		case "q!":
+			m.fileMenuOperations = nil
+			*m.selected = utils.ExitSignal
+			m.quitting = true
+			return m, tea.Quit
+		default:
+			m.fileMenuMode = fileMenuNormalMode
+			m.fileMenuStatus = "unknown command: :" + command
+			return m, nil
+		}
+	}
+
+	if msg.Type == tea.KeyRunes {
+		m.fileMenuCommand += string(msg.Runes)
+	}
+	return m, nil
+}
+
+func (m *MultiPageViewModel) updateFileMenuConfirmation(msg tea.KeyMsg) {
+	switch msg.String() {
+	case "y", "enter":
+		if err := m.fileMenuOperator.Apply(m.fileMenuOperations); err != nil {
+			m.fileMenuMode = fileMenuNormalMode
+			m.fileMenuStatus = "save failed: " + err.Error()
+			return
+		}
+		count := len(m.fileMenuOperations)
+		m.fileMenuOperations = nil
+		if m.fileMenuClipboardCut {
+			m.fileMenuClipboard = nil
+			m.fileMenuClipboardMove = false
+			m.fileMenuClipboardCut = false
+		}
+		m.fileMenuMode = fileMenuNormalMode
+		m.fileMenuStatus = fmt.Sprintf("saved %d operation(s)", count)
+		m.loadFileMenuDirectory(m.fileMenuPath)
+		m.fileMenuStatus = fmt.Sprintf("saved %d operation(s)", count)
+	case "n", "esc":
+		m.fileMenuMode = fileMenuNormalMode
+		m.fileMenuStatus = "save cancelled; changes remain pending"
+	}
+}
+
+func (m *MultiPageViewModel) moveFileMenuCursor(delta int) {
+	if len(m.fileMenuEntries) == 0 {
+		return
+	}
+	m.fileMenuCursor = (m.fileMenuCursor + delta + len(m.fileMenuEntries)) % len(m.fileMenuEntries)
+	m.refreshFileMenuPreview()
+}
+
+func (m MultiPageViewModel) selectedFileMenuEntries() []fileMenuEntry {
+	if len(m.fileMenuEntries) == 0 || m.fileMenuCursor >= len(m.fileMenuEntries) {
+		return nil
+	}
+	start, end := m.fileMenuCursor, m.fileMenuCursor
+	if m.fileMenuMode == fileMenuVisualMode {
+		start = m.fileMenuVisualAnchor
+		if start > end {
+			start, end = end, start
+		}
+	}
+	return append([]fileMenuEntry(nil), m.fileMenuEntries[start:end+1]...)
+}
+
+func (m *MultiPageViewModel) setFileMenuClipboard(entries []fileMenuEntry, move bool) {
+	m.fileMenuClipboard = make([]fileMenuClipboardEntry, 0, len(entries))
+	for _, entry := range entries {
+		m.fileMenuClipboard = append(m.fileMenuClipboard, fileMenuClipboardEntry{
+			path: filepath.Clean(filepath.Join(m.fileMenuPath, entry.name)),
+			kind: entry.kind,
+		})
+	}
+	m.fileMenuClipboardMove = move
+	m.fileMenuClipboardCut = false
+	action := "yanked"
+	if move {
+		action = "marked to move"
+	}
+	m.fileMenuStatus = fmt.Sprintf("%s %d entrie(s)", action, len(entries))
+}
+
+func (m *MultiPageViewModel) stageFileMenuDelete(entries []fileMenuEntry) {
+	if len(entries) == 0 {
+		return
+	}
+	m.setFileMenuClipboard(entries, true)
+	m.fileMenuClipboardCut = true
+	added := 0
+	for _, entry := range entries {
+		path := filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
+		if m.hasFileMenuOperation(fileMenuDelete, path, "") {
+			continue
+		}
+		m.fileMenuOperations = append(m.fileMenuOperations, fileMenuOperation{kind: fileMenuDelete, source: path})
+		added++
+	}
+	m.fileMenuStatus = fmt.Sprintf("cut %d entrie(s); p moves, :w deletes", added)
+	m.rebuildFileMenuEntries()
+	m.clampFileMenuCursor()
+	m.refreshFileMenuPreview()
+}
+
+func (m *MultiPageViewModel) stageFileMenuPaste() {
+	if len(m.fileMenuClipboard) == 0 {
+		m.fileMenuStatus = "clipboard is empty"
+		return
+	}
+
+	if m.fileMenuClipboardCut {
+		restoresOriginalDirectory := true
+		for _, entry := range m.fileMenuClipboard {
+			destination := filepath.Clean(filepath.Join(m.fileMenuPath, filepath.Base(entry.path)))
+			if destination != entry.path {
+				restoresOriginalDirectory = false
+				break
+			}
+		}
+		if restoresOriginalDirectory {
+			firstPath := m.fileMenuClipboard[0].path
+			m.removeFileMenuClipboardDeletes()
+			count := len(m.fileMenuClipboard)
+			m.fileMenuClipboard = nil
+			m.fileMenuClipboardMove = false
+			m.fileMenuClipboardCut = false
+			m.rebuildFileMenuEntries()
+			m.selectFileMenuPath(firstPath)
+			m.fileMenuStatus = fmt.Sprintf("restored %d cut entrie(s)", count)
+			return
+		}
+	}
+
+	operations := make([]fileMenuOperation, 0, len(m.fileMenuClipboard))
+	for _, entry := range m.fileMenuClipboard {
+		destination := filepath.Clean(filepath.Join(m.fileMenuPath, filepath.Base(entry.path)))
+		if entry.kind == fileMenuDirectory && fileMenuPathContains(entry.path, destination) {
+			m.fileMenuStatus = "cannot copy or move a directory inside itself"
+			return
+		}
+		kind := fileMenuCopy
+		if m.fileMenuClipboardMove {
+			kind = fileMenuMove
+			if destination == entry.path {
+				m.fileMenuStatus = "choose another directory before pasting a move"
+				return
+			}
+			if m.fileMenuDestinationExists(destination) {
+				m.fileMenuStatus = "destination already exists: " + destination
+				return
+			}
+		} else {
+			destination = m.availableFileMenuCopyDestination(destination, entry.kind)
+		}
+		operations = append(operations, fileMenuOperation{kind: kind, source: entry.path, destination: destination, entryKind: entry.kind})
+	}
+
+	if m.fileMenuClipboardCut {
+		m.removeFileMenuClipboardDeletes()
+	}
+	m.fileMenuOperations = append(m.fileMenuOperations, operations...)
+	m.rebuildFileMenuEntries()
+	if len(operations) > 0 {
+		m.selectFileMenuPath(operations[0].destination)
+	}
+	verb := "copy"
+	if m.fileMenuClipboardMove {
+		verb = "move"
+		m.fileMenuClipboard = nil
+		m.fileMenuClipboardMove = false
+		m.fileMenuClipboardCut = false
+	}
+	m.fileMenuStatus = fmt.Sprintf("staged %s of %d entrie(s)", verb, len(operations))
+}
+
+func (m *MultiPageViewModel) removeFileMenuClipboardDeletes() {
+	cutPaths := make(map[string]struct{}, len(m.fileMenuClipboard))
+	for _, entry := range m.fileMenuClipboard {
+		cutPaths[entry.path] = struct{}{}
+	}
+	operations := m.fileMenuOperations[:0]
+	for _, operation := range m.fileMenuOperations {
+		_, isCutPath := cutPaths[operation.source]
+		if operation.kind == fileMenuDelete && isCutPath {
+			continue
+		}
+		operations = append(operations, operation)
+	}
+	m.fileMenuOperations = operations
+}
+
+func (m *MultiPageViewModel) commitFileMenuInput() error {
+	value := strings.TrimSpace(m.fileMenuInput)
+	if value == "" {
+		return fmt.Errorf("name cannot be empty")
+	}
+	if filepath.IsAbs(value) {
+		return fmt.Errorf("use a path relative to the current directory")
+	}
+
+	createDirectory := m.fileMenuInputAction == fileMenuCreateInput && strings.HasSuffix(value, string(filepath.Separator))
+	if createDirectory {
+		value = strings.TrimRight(value, string(filepath.Separator))
+	}
+	destination, err := resolveFileMenuPath(m.fileMenuPath, value)
+	if err != nil {
+		return err
+	}
+	if m.fileMenuInputAction == fileMenuRenameInput && destination == m.fileMenuInputSource {
+		m.fileMenuStatus = "name unchanged"
+		return nil
+	}
+	if m.fileMenuDestinationExists(destination) {
+		return fmt.Errorf("destination already exists: %s", destination)
+	}
+
+	if m.fileMenuInputAction == fileMenuCreateInput {
+		kind := fileMenuCreateFile
+		if createDirectory {
+			kind = fileMenuCreateDirectory
+		}
+		entryKind := fileMenuRegularFile
+		if createDirectory {
+			entryKind = fileMenuDirectory
+		}
+		m.fileMenuOperations = append(m.fileMenuOperations, fileMenuOperation{kind: kind, destination: destination, entryKind: entryKind})
+		m.rebuildFileMenuEntries()
+		m.selectFileMenuPath(destination)
+		m.fileMenuStatus = "staged creation: " + destination
+		return nil
+	}
+
+	m.fileMenuOperations = append(m.fileMenuOperations, fileMenuOperation{
+		kind:        fileMenuMove,
+		source:      m.fileMenuInputSource,
+		destination: destination,
+		entryKind:   m.fileMenuInputKind,
+	})
+	m.rebuildFileMenuEntries()
+	m.selectFileMenuPath(destination)
+	m.fileMenuStatus = "staged move: " + m.fileMenuInputSource + " → " + destination
+	return nil
+}
+
+func resolveFileMenuPath(directory, value string) (string, error) {
+	target := filepath.Clean(filepath.Join(directory, value))
+	relative, err := filepath.Rel(".", target)
+	if err != nil {
+		return "", fmt.Errorf("invalid path %q: %w", value, err)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path must stay inside the file menu root")
+	}
+	return target, nil
+}
+
+func fileMenuPathContains(parent, child string) bool {
+	relative, err := filepath.Rel(parent, child)
+	if err != nil {
+		return false
+	}
+	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
+}
+
+func (m MultiPageViewModel) fileMenuDestinationExists(path string) bool {
+	if filepath.Dir(path) == m.fileMenuPath {
+		name := filepath.Base(path)
+		for _, entry := range m.fileMenuEntries {
+			if entry.name == name {
+				return true
+			}
+		}
+	}
+	for _, operation := range m.fileMenuOperations {
+		if operation.destination == path && operation.kind != fileMenuDelete {
+			return true
+		}
+	}
+	return false
+}
+
+func (m MultiPageViewModel) availableFileMenuCopyDestination(destination string, kind fileMenuEntryKind) string {
+	if !m.fileMenuDestinationExists(destination) {
+		return destination
+	}
+	directory := filepath.Dir(destination)
+	base := filepath.Base(destination)
+	extension := ""
+	if kind != fileMenuDirectory {
+		extension = filepath.Ext(base)
+		base = strings.TrimSuffix(base, extension)
+	}
+	for number := 1; ; number++ {
+		suffix := "-copy"
+		if number > 1 {
+			suffix = fmt.Sprintf("-copy-%d", number)
+		}
+		candidate := filepath.Join(directory, base+suffix+extension)
+		if !m.fileMenuDestinationExists(candidate) {
+			return candidate
+		}
+	}
+}
+
+func (m MultiPageViewModel) hasFileMenuOperation(kind fileMenuOperationKind, source, destination string) bool {
+	for _, operation := range m.fileMenuOperations {
+		if operation.kind == kind && operation.source == source && operation.destination == destination {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *MultiPageViewModel) rebuildFileMenuEntries() {
+	entries := append([]fileMenuEntry(nil), m.fileMenuBaseEntries...)
+	for index := range entries {
+		entries[index].pending = false
+	}
+
+	removePath := func(path string) {
+		if filepath.Dir(path) != m.fileMenuPath {
+			return
+		}
+		name := filepath.Base(path)
+		filtered := entries[:0]
+		for _, entry := range entries {
+			if entry.name != name {
+				filtered = append(filtered, entry)
+			}
+		}
+		entries = filtered
+	}
+	addDestination := func(operation fileMenuOperation) {
+		if filepath.Dir(operation.destination) != m.fileMenuPath {
+			return
+		}
+		entries = append(entries, fileMenuEntry{
+			name:    filepath.Base(operation.destination),
+			kind:    operation.entryKind,
+			pending: true,
+		})
+	}
+
+	for _, operation := range m.fileMenuOperations {
+		switch operation.kind {
+		case fileMenuCreateFile, fileMenuCreateDirectory, fileMenuCopy:
+			addDestination(operation)
+		case fileMenuMove:
+			removePath(operation.source)
+			addDestination(operation)
+		case fileMenuDelete:
+			removePath(operation.source)
+		}
+	}
+	sortFileMenuEntries(entries)
+	m.fileMenuEntries = entries
+}
+
+func (m *MultiPageViewModel) selectFileMenuPath(path string) {
+	if filepath.Dir(path) != m.fileMenuPath {
+		m.clampFileMenuCursor()
+		m.refreshFileMenuPreview()
+		return
+	}
+	name := filepath.Base(path)
+	for index, entry := range m.fileMenuEntries {
+		if entry.name == name {
+			m.fileMenuCursor = index
+			m.refreshFileMenuPreview()
+			return
+		}
+	}
+	m.clampFileMenuCursor()
+	m.refreshFileMenuPreview()
+}
+
+func (m *MultiPageViewModel) clampFileMenuCursor() {
+	if len(m.fileMenuEntries) == 0 {
+		m.fileMenuCursor = 0
+		return
+	}
+	if m.fileMenuCursor >= len(m.fileMenuEntries) {
+		m.fileMenuCursor = len(m.fileMenuEntries) - 1
+	}
 }
 
 func classifyFileMenuEntry(name string, isDir bool, mode fs.FileMode) fileMenuEntryKind {
@@ -316,15 +920,66 @@ func (m MultiPageViewModel) renderFileMenu() string {
 	leftBox := boxStyle.Render(leftContent)
 	rightBox := boxStyle.Render(rightContent)
 
-	return lipgloss.JoinHorizontal(
+	boxes := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		leftBox,
 		strings.Repeat(" ", fileMenuBoxGap),
 		rightBox,
 	)
+	return boxes + "\n" + m.renderFileMenuStatus()
+}
+
+func (m MultiPageViewModel) renderFileMenuStatus() string {
+	mode := "-- NORMAL --"
+	prompt := m.fileMenuStatus
+	switch m.fileMenuMode {
+	case fileMenuInsertMode:
+		mode = "-- INSERT --"
+		label := "new"
+		if m.fileMenuInputAction == fileMenuRenameInput {
+			label = "edit"
+		}
+		prompt = label + ": " + m.renderFileMenuInputCursor()
+	case fileMenuVisualMode:
+		mode = "-- VISUAL LINE --"
+	case fileMenuCommandMode:
+		mode = "-- COMMAND --"
+		prompt = ":" + m.fileMenuCommand + "█"
+	case fileMenuConfirmMode:
+		mode = "-- CONFIRM --"
+	}
+
+	if prompt == "" {
+		prompt = "a/o new · i edit · V select · yy copy · dd cut · p paste · :w save"
+	}
+	if pending := len(m.fileMenuOperations); pending > 0 {
+		prompt = fmt.Sprintf("%s · %d pending", prompt, pending)
+	}
+	return lipgloss.NewStyle().
+		Foreground(m.styles.FooterColor).
+		Render(mode + "  " + prompt)
+}
+
+func (m MultiPageViewModel) renderFileMenuInputCursor() string {
+	runes := []rune(m.fileMenuInput)
+	position := m.fileMenuInputCursor
+	if position < 0 {
+		position = 0
+	}
+	if position > len(runes) {
+		position = len(runes)
+	}
+	return string(runes[:position]) + "█" + string(runes[position:])
 }
 
 func (m MultiPageViewModel) renderFilePreview() string {
+	if m.fileMenuMode == fileMenuConfirmMode {
+		lines := []string{"Pending filesystem changes", ""}
+		for _, operation := range m.fileMenuOperations {
+			lines = append(lines, operation.description())
+		}
+		return strings.Join(lines, "\n")
+	}
 	preview := m.fileMenuPreview
 	if !preview.hasSelection {
 		return lipgloss.NewStyle().Foreground(m.styles.FooterColor).Render("no selection")
@@ -332,6 +987,11 @@ func (m MultiPageViewModel) renderFilePreview() string {
 
 	icon, label, color := m.fileMenuEntryPresentation(preview.entry)
 	header := lipgloss.NewStyle().Foreground(color).Render(icon + " " + label)
+	if preview.pending {
+		return header + "\n\n" + lipgloss.NewStyle().
+			Foreground(m.styles.FooterColor).
+			Render("pending change — save with :w")
+	}
 	if preview.err != nil {
 		return header + "\n\n" + lipgloss.NewStyle().
 			Foreground(m.styles.ErrorColor).
@@ -412,18 +1072,34 @@ func (m MultiPageViewModel) renderFileTree() string {
 		labelWidth = 1
 	}
 
+	hasDraftEntry := m.fileMenuMode == fileMenuInsertMode && m.fileMenuInputAction == fileMenuCreateInput
 	for index, entry := range m.fileMenuEntries {
 		connector := "├─"
-		if index == len(m.fileMenuEntries)-1 {
+		if index == len(m.fileMenuEntries)-1 && !hasDraftEntry {
 			connector = "└─"
 		}
 
 		icon, label, color := m.fileMenuEntryPresentation(entry)
+		entryPath := filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
+		if m.fileMenuMode == fileMenuInsertMode && m.fileMenuInputAction == fileMenuRenameInput && entryPath == m.fileMenuInputSource {
+			label = m.renderFileMenuInputCursor()
+		}
 		label = truncateSingleLine(label, labelWidth)
 		marker := "  "
 		branchColor := m.styles.DividerColor
+		if entry.pending {
+			marker = "+ "
+			branchColor = m.styles.SelectedTitleColor
+		} else if m.fileMenuEntryIsPendingDelete(entry) {
+			marker = "D "
+			branchColor = m.styles.ErrorColor
+		}
+		if m.fileMenuEntryIsVisuallySelected(index) {
+			marker = "◆ "
+			branchColor = m.styles.SelectedTitleColor
+		}
 		if index == m.fileMenuCursor {
-			marker = "▌ "
+			marker = "█ "
 			branchColor = m.styles.SelectedTitleColor
 		}
 		branch := lipgloss.NewStyle().
@@ -434,7 +1110,38 @@ func (m MultiPageViewModel) renderFileTree() string {
 		lines = append(lines, branch+iconText+labelText)
 	}
 
+	if hasDraftEntry {
+		draftKind := fileMenuRegularFile
+		if strings.HasSuffix(m.fileMenuInput, string(filepath.Separator)) {
+			draftKind = fileMenuDirectory
+		}
+		icon, _, color := m.fileMenuEntryPresentation(fileMenuEntry{kind: draftKind})
+		label := truncateSingleLine(m.renderFileMenuInputCursor(), labelWidth)
+		branch := lipgloss.NewStyle().
+			Foreground(m.styles.SelectedTitleColor).
+			Render("█ └─ ")
+		iconText := lipgloss.NewStyle().Foreground(color).Render(icon + " ")
+		labelText := lipgloss.NewStyle().Foreground(color).Render(label)
+		lines = append(lines, branch+iconText+labelText)
+	}
+
 	return strings.Join(lines, "\n")
+}
+
+func (m MultiPageViewModel) fileMenuEntryIsVisuallySelected(index int) bool {
+	if m.fileMenuMode != fileMenuVisualMode {
+		return false
+	}
+	start, end := m.fileMenuVisualAnchor, m.fileMenuCursor
+	if start > end {
+		start, end = end, start
+	}
+	return index >= start && index <= end
+}
+
+func (m MultiPageViewModel) fileMenuEntryIsPendingDelete(entry fileMenuEntry) bool {
+	path := filepath.Clean(filepath.Join(m.fileMenuPath, entry.name))
+	return m.hasFileMenuOperation(fileMenuDelete, path, "")
 }
 
 func (m MultiPageViewModel) fileMenuEntryPresentation(entry fileMenuEntry) (icon, label string, color lipgloss.Color) {

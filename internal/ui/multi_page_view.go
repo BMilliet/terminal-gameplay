@@ -71,13 +71,29 @@ type MultiPageViewModel struct {
 	config                 *utils.ConfigDTO
 	features               *settings.FeaturesDTO
 	currentDirectoryReader currentDirectoryReader
+	fileMenuOperator       fileMenuOperator
 	currentMenu            MenuType
 	currentPage            PageType
+	fileMenuBaseEntries    []fileMenuEntry
 	fileMenuEntries        []fileMenuEntry
 	fileMenuError          error
 	fileMenuPath           string
 	fileMenuCursor         int
 	fileMenuPreview        fileMenuPreview
+	fileMenuMode           fileMenuMode
+	fileMenuVisualAnchor   int
+	fileMenuInput          string
+	fileMenuInputCursor    int
+	fileMenuInputAction    fileMenuInputAction
+	fileMenuInputSource    string
+	fileMenuInputKind      fileMenuEntryKind
+	fileMenuCommand        string
+	fileMenuPendingKey     string
+	fileMenuStatus         string
+	fileMenuOperations     []fileMenuOperation
+	fileMenuClipboard      []fileMenuClipboardEntry
+	fileMenuClipboardMove  bool
+	fileMenuClipboardCut   bool
 	frequentList           []utils.ListItem
 	goToList               []utils.ListItem
 	scriptList             []utils.ListItem
@@ -161,6 +177,7 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 		config:                 config,
 		features:               features,
 		currentDirectoryReader: osCurrentDirectoryReader{},
+		fileMenuOperator:       osFileMenuOperator{root: "."},
 		currentMenu:            QuickMenu,
 		currentPage:            currentPage,
 		fileMenuPath:           ".",

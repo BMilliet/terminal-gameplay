@@ -39,6 +39,29 @@ type filePreviewCall struct {
 	maxBytes int
 }
 
+type fakeFileMenuOperator struct {
+	batches [][]fileMenuOperation
+	err     error
+}
+
+func (f *fakeFileMenuOperator) Apply(operations []fileMenuOperation) error {
+	batch := append([]fileMenuOperation(nil), operations...)
+	f.batches = append(f.batches, batch)
+	return f.err
+}
+
+func updateFileMenuWithKeys(model MultiPageViewModel, keys ...tea.KeyMsg) MultiPageViewModel {
+	for _, key := range keys {
+		updated, _ := model.Update(key)
+		model = updated.(MultiPageViewModel)
+	}
+	return model
+}
+
+func runeKey(value rune) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{value}}
+}
+
 func (f *fakeCurrentDirectoryReader) ReadDirectory(path string) ([]fileMenuEntry, error) {
 	f.calls = append(f.calls, path)
 	return f.entriesByPath[path], f.errorsByPath[path]
@@ -265,7 +288,7 @@ func TestFileMenuSelectorMovesThroughEntries(t *testing.T) {
 	}
 	selectedRowFound := false
 	for _, line := range strings.Split(model.View(), "\n") {
-		if strings.Contains(line, "notes.txt") && strings.Contains(line, "▌") {
+		if strings.Contains(line, "notes.txt") && strings.Contains(line, "█") {
 			selectedRowFound = true
 		}
 	}
@@ -360,6 +383,321 @@ func TestFileMenuEnterOnFileReturnsNvimAction(t *testing.T) {
 	}
 	if !model.quitting {
 		t.Fatal("file menu should quit before handing the file to the runner")
+	}
+}
+
+func TestFileMenuVisualModeSelectsMultipleEntriesForCopy(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {
+			{name: "one.txt", kind: fileMenuRegularFile},
+			{name: "two.txt", kind: fileMenuRegularFile},
+			{name: "three.txt", kind: fileMenuRegularFile},
+		},
+	}}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('v'), tea.KeyMsg{Type: tea.KeyDown}, runeKey('y'))
+
+	if model.fileMenuMode != fileMenuNormalMode {
+		t.Fatalf("file menu mode = %v, want normal after yank", model.fileMenuMode)
+	}
+	if len(model.fileMenuClipboard) != 2 {
+		t.Fatalf("clipboard = %#v, want two selected entries", model.fileMenuClipboard)
+	}
+	if model.fileMenuClipboard[0].path != "one.txt" || model.fileMenuClipboard[1].path != "three.txt" {
+		t.Fatalf("clipboard paths = %#v, want one.txt and three.txt", model.fileMenuClipboard)
+	}
+	if model.fileMenuClipboardMove {
+		t.Fatal("visual yank should copy, not move")
+	}
+}
+
+func TestFileMenuShiftVEntersVisualLineMode(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {
+			{name: "one.txt", kind: fileMenuRegularFile},
+			{name: "two.txt", kind: fileMenuRegularFile},
+		},
+	}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('V'), tea.KeyMsg{Type: tea.KeyDown})
+
+	if model.fileMenuMode != fileMenuVisualMode {
+		t.Fatalf("file menu mode = %v, want visual line mode", model.fileMenuMode)
+	}
+	if selected := model.selectedFileMenuEntries(); len(selected) != 2 {
+		t.Fatalf("selected entries = %#v, want two lines", selected)
+	}
+	if view := model.View(); !strings.Contains(view, "-- VISUAL LINE --") {
+		t.Fatalf("visual line mode is not visible: %q", view)
+	}
+}
+
+func TestFileMenuCreateIsStagedAndAppliedOnlyAfterWriteConfirmation(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{".": {}}}
+	operator := &fakeFileMenuOperator{}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+	model.fileMenuOperator = operator
+
+	model = updateFileMenuWithKeys(model,
+		runeKey('f'), runeKey('o'), runeKey('n'), runeKey('e'), runeKey('w'), runeKey('.'), runeKey('t'), runeKey('x'), runeKey('t'), tea.KeyMsg{Type: tea.KeyEnter},
+		runeKey(':'), runeKey('w'), tea.KeyMsg{Type: tea.KeyEnter},
+	)
+
+	if model.fileMenuMode != fileMenuConfirmMode {
+		t.Fatalf("file menu mode = %v, want confirmation", model.fileMenuMode)
+	}
+	if len(operator.batches) != 0 {
+		t.Fatalf("operations were applied before confirmation: %#v", operator.batches)
+	}
+	if len(model.fileMenuOperations) != 1 || model.fileMenuOperations[0].kind != fileMenuCreateFile || model.fileMenuOperations[0].destination != "new.txt" {
+		t.Fatalf("staged operations = %#v, want create new.txt", model.fileMenuOperations)
+	}
+
+	model = updateFileMenuWithKeys(model, runeKey('y'))
+
+	if len(operator.batches) != 1 || len(operator.batches[0]) != 1 {
+		t.Fatalf("applied batches = %#v, want one operation", operator.batches)
+	}
+	if len(model.fileMenuOperations) != 0 || model.fileMenuMode != fileMenuNormalMode {
+		t.Fatalf("successful save did not clear pending changes: %#v mode=%v", model.fileMenuOperations, model.fileMenuMode)
+	}
+}
+
+func TestFileMenuCreateWithTrailingSlashStagesDirectory(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{".": {}}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('o'), runeKey('d'), runeKey('o'), runeKey('c'), runeKey('s'), runeKey('/'), tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(model.fileMenuOperations) != 1 || model.fileMenuOperations[0].kind != fileMenuCreateDirectory || model.fileMenuOperations[0].destination != "docs" {
+		t.Fatalf("staged operations = %#v, want create directory docs", model.fileMenuOperations)
+	}
+}
+
+func TestFileMenuDeleteStagesVisualSelection(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {
+			{name: "one.txt", kind: fileMenuRegularFile},
+			{name: "two.txt", kind: fileMenuRegularFile},
+		},
+	}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('v'), tea.KeyMsg{Type: tea.KeyDown}, runeKey('d'))
+
+	if len(model.fileMenuOperations) != 2 {
+		t.Fatalf("staged operations = %#v, want two deletes", model.fileMenuOperations)
+	}
+	for _, operation := range model.fileMenuOperations {
+		if operation.kind != fileMenuDelete {
+			t.Fatalf("operation = %#v, want delete", operation)
+		}
+	}
+}
+
+func TestFileMenuDDKeepsEntryInRegisterAndPasteTurnsDeleteIntoMove(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {
+			{name: "destination", kind: fileMenuDirectory},
+			{name: "notes.txt", kind: fileMenuRegularFile},
+		},
+		"destination": {},
+	}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), tea.KeyMsg{Type: tea.KeyDown}, runeKey('d'), runeKey('d'))
+
+	if len(model.fileMenuClipboard) != 1 || model.fileMenuClipboard[0].path != "notes.txt" || !model.fileMenuClipboardMove || !model.fileMenuClipboardCut {
+		t.Fatalf("register after dd = %#v move=%v cut=%v", model.fileMenuClipboard, model.fileMenuClipboardMove, model.fileMenuClipboardCut)
+	}
+	if len(model.fileMenuOperations) != 1 || model.fileMenuOperations[0].kind != fileMenuDelete {
+		t.Fatalf("operations after dd = %#v, want pending delete", model.fileMenuOperations)
+	}
+	if view := model.View(); strings.Contains(view, "notes.txt") {
+		t.Fatalf("deleted line is still visible before paste: %q", view)
+	}
+
+	model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyEnter}, runeKey('p'))
+
+	if len(model.fileMenuOperations) != 1 {
+		t.Fatalf("operations after paste = %#v, want one move", model.fileMenuOperations)
+	}
+	operation := model.fileMenuOperations[0]
+	if operation.kind != fileMenuMove || operation.source != "notes.txt" || operation.destination != "destination/notes.txt" {
+		t.Fatalf("operation after paste = %#v, want move into destination", operation)
+	}
+	if model.fileMenuClipboardCut || len(model.fileMenuClipboard) != 0 {
+		t.Fatalf("cut register was not consumed after paste: %#v cut=%v", model.fileMenuClipboard, model.fileMenuClipboardCut)
+	}
+	if view := model.View(); !strings.Contains(view, "notes.txt") || !strings.Contains(view, "pending change") {
+		t.Fatalf("moved entry is not visible at destination: %q", view)
+	}
+}
+
+func TestFileMenuDDThenPasteInSameDirectoryRestoresLine(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {{name: "notes.txt", kind: fileMenuRegularFile}},
+	}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('d'), runeKey('d'), runeKey('p'))
+
+	if len(model.fileMenuOperations) != 0 {
+		t.Fatalf("operations after restoring cut line = %#v, want none", model.fileMenuOperations)
+	}
+	if len(model.fileMenuEntries) != 1 || model.fileMenuEntries[0].name != "notes.txt" {
+		t.Fatalf("restored entries = %#v, want notes.txt", model.fileMenuEntries)
+	}
+}
+
+func TestFileMenuCopyAndMovePasteIntoCurrentDirectory(t *testing.T) {
+	entries := []fileMenuEntry{
+		{name: "dest", kind: fileMenuDirectory},
+		{name: "one.txt", kind: fileMenuRegularFile},
+		{name: "two.txt", kind: fileMenuRegularFile},
+	}
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".":    entries,
+		"dest": {},
+	}}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+	model = updateFileMenuWithKeys(model, runeKey('f'), tea.KeyMsg{Type: tea.KeyDown}, runeKey('y'), runeKey('y'), tea.KeyMsg{Type: tea.KeyUp}, tea.KeyMsg{Type: tea.KeyEnter}, runeKey('p'))
+
+	if len(model.fileMenuOperations) != 1 {
+		t.Fatalf("copy operations = %#v, want one", model.fileMenuOperations)
+	}
+	copyOperation := model.fileMenuOperations[0]
+	if copyOperation.kind != fileMenuCopy || copyOperation.source != "one.txt" || copyOperation.destination != "dest/one.txt" {
+		t.Fatalf("copy operation = %#v", copyOperation)
+	}
+
+	model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyLeft}, tea.KeyMsg{Type: tea.KeyDown}, tea.KeyMsg{Type: tea.KeyDown}, runeKey('m'), runeKey('m'), tea.KeyMsg{Type: tea.KeyUp}, tea.KeyMsg{Type: tea.KeyUp}, tea.KeyMsg{Type: tea.KeyEnter}, runeKey('p'))
+	if len(model.fileMenuOperations) != 2 {
+		t.Fatalf("copy/move operations = %#v, want two", model.fileMenuOperations)
+	}
+	moveOperation := model.fileMenuOperations[1]
+	if moveOperation.kind != fileMenuMove || moveOperation.source != "two.txt" || moveOperation.destination != "dest/two.txt" {
+		t.Fatalf("move operation = %#v", moveOperation)
+	}
+}
+
+func TestFileMenuPasteAppearsImmediatelyAsPendingEntry(t *testing.T) {
+	operator := &fakeFileMenuOperator{}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {{name: "notes.txt", kind: fileMenuRegularFile}},
+	}}
+	model.fileMenuOperator = operator
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('y'), runeKey('y'), runeKey('p'))
+
+	if len(operator.batches) != 0 {
+		t.Fatalf("paste touched the filesystem before :w: %#v", operator.batches)
+	}
+	if len(model.fileMenuEntries) != 2 {
+		t.Fatalf("visible entries = %#v, want source and pending copy", model.fileMenuEntries)
+	}
+	pasted := model.fileMenuEntries[model.fileMenuCursor]
+	if pasted.name != "notes-copy.txt" || !pasted.pending {
+		t.Fatalf("selected pasted entry = %#v, want pending notes-copy.txt", pasted)
+	}
+	if view := model.View(); !strings.Contains(view, "notes-copy.txt") || !strings.Contains(view, "pending change") {
+		t.Fatalf("pending paste is not visible in file menu: %q", view)
+	}
+}
+
+func TestFileMenuAEditsNewEntryInlineInsideEmptyDirectory(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".":     {{name: "empty", kind: fileMenuDirectory}},
+		"empty": {},
+	}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), tea.KeyMsg{Type: tea.KeyEnter}, runeKey('a'))
+	for _, value := range "notes.txt" {
+		model = updateFileMenuWithKeys(model, runeKey(value))
+	}
+
+	if model.fileMenuMode != fileMenuInsertMode {
+		t.Fatalf("file menu mode = %v, want insert", model.fileMenuMode)
+	}
+	if view := model.View(); !strings.Contains(view, "notes.txt█") {
+		t.Fatalf("new entry is not being edited inline: %q", view)
+	}
+	if len(model.fileMenuOperations) != 0 {
+		t.Fatalf("typing applied an operation before leaving insert mode: %#v", model.fileMenuOperations)
+	}
+
+	model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if model.fileMenuMode != fileMenuNormalMode {
+		t.Fatalf("file menu mode after escape = %v, want normal", model.fileMenuMode)
+	}
+	if len(model.fileMenuOperations) != 1 || model.fileMenuOperations[0].kind != fileMenuCreateFile || model.fileMenuOperations[0].destination != "empty/notes.txt" {
+		t.Fatalf("pending operations = %#v, want create empty/notes.txt", model.fileMenuOperations)
+	}
+	if view := model.View(); !strings.Contains(view, "notes.txt") || !strings.Contains(view, "pending change") {
+		t.Fatalf("new buffered entry disappeared after escape: %q", view)
+	}
+}
+
+func TestFileMenuInsertModeHasMovableTextCursor(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{".": {}}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('a'))
+	for _, value := range "not.txt" {
+		model = updateFileMenuWithKeys(model, runeKey(value))
+	}
+	model = updateFileMenuWithKeys(model,
+		tea.KeyMsg{Type: tea.KeyLeft}, tea.KeyMsg{Type: tea.KeyLeft}, tea.KeyMsg{Type: tea.KeyLeft}, tea.KeyMsg{Type: tea.KeyLeft},
+		runeKey('e'),
+	)
+
+	if model.fileMenuInput != "note.txt" || model.fileMenuInputCursor != 4 {
+		t.Fatalf("input = %q cursor = %d, want note.txt cursor 4", model.fileMenuInput, model.fileMenuInputCursor)
+	}
+	if view := model.View(); !strings.Contains(view, "note█.txt") {
+		t.Fatalf("movable text cursor is not rendered inline: %q", view)
+	}
+}
+
+func TestFileMenuDoesNotCopyDirectoryInsideItself(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".":      {{name: "assets", kind: fileMenuDirectory}},
+		"assets": {},
+	}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('y'), runeKey('y'), tea.KeyMsg{Type: tea.KeyEnter}, runeKey('p'))
+
+	if len(model.fileMenuOperations) != 0 {
+		t.Fatalf("staged operations = %#v, want no recursive self-copy", model.fileMenuOperations)
+	}
+	if !strings.Contains(model.fileMenuStatus, "inside itself") {
+		t.Fatalf("status = %q, want self-copy explanation", model.fileMenuStatus)
+	}
+}
+
+func TestFileMenuInsertModeRenamesSelectedEntry(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {{name: "note", kind: fileMenuRegularFile}},
+	}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('i'), runeKey('.'), runeKey('t'), runeKey('x'), runeKey('t'), tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(model.fileMenuOperations) != 1 {
+		t.Fatalf("rename operations = %#v, want one", model.fileMenuOperations)
+	}
+	operation := model.fileMenuOperations[0]
+	if operation.kind != fileMenuMove || operation.source != "note" || operation.destination != "note.txt" {
+		t.Fatalf("rename operation = %#v", operation)
 	}
 }
 
