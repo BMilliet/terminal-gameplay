@@ -130,8 +130,9 @@ are identified without printing their raw contents. Directories, regular files,
 executables, and image files use distinct colors. Use `↑`/`↓` or `j`/`k`
 to move between entries, `gg` to jump to the first entry, and `Shift+G` to jump
 to the last entry. The active entry has a Vim-style block cursor inside its
-name; move it with `h`/`l`, `0`/`$`, or `Home`/`End`. Press `Enter` on a
-directory to show its contents, or on a text file to open it with `nvim`.
+name; move it with `h`/`l`, `0`/`$`, or `Home`/`End`. An empty directory keeps
+the cursor on a blank editable line instead of losing the Normal-mode cursor.
+Press `Enter` on a directory to show its contents, or on a text file to open it with `nvim`.
 Binary files and other non-text formats remain selected and show a warning
 instead of opening. Press `→` as another option for entering the selected
 directory; unlike `Enter`, it does nothing on files. Press `←` to return to the
@@ -158,7 +159,10 @@ Filesystem changes in the file menu follow an Oil/Vim-inspired staged workflow:
   the beginning of the name and `A` starts at the end, matching Vim. `Ctrl+U`
   clears the name, which is useful when moving or renaming it. In Insert mode,
   move the inline block cursor with `←`/`→`, `Home`, and `End`; `Backspace` and
-  `Delete` edit around its current position.
+  `Delete` edit around its current position. In an empty directory, these edit
+  keys start a new entry. Leaving Insert mode returns the block cursor to the
+  last inserted character. Adding `/` while editing a pending new file changes
+  that staged creation into a directory.
 - `Shift+V` enters Visual Line mode (`v` is also accepted). Extend the selection
   with `j`/`k` or the arrow keys, then press `y` to copy, `m` to mark for moving,
   or `d` to cut the selected entries. The active line uses a block cursor, while

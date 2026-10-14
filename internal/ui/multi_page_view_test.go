@@ -585,12 +585,42 @@ func TestFileMenuSelectorMovesThroughEntries(t *testing.T) {
 	if model.fileMenuCursor != 1 {
 		t.Fatalf("file menu cursor after down = %d, want 1", model.fileMenuCursor)
 	}
+	_, _, cursorColor := model.fileMenuEntryPresentation(model.fileMenuEntries[model.fileMenuCursor])
 	wantCursor := lipgloss.NewStyle().
-		Foreground(model.styles.FileMenuFileColor).
+		Foreground(cursorColor).
 		Reverse(true).
 		Render("n")
 	if view := model.View(); !strings.Contains(view, wantCursor) {
 		t.Fatalf("selected file name does not contain a Vim-style block cursor: %q", view)
+	}
+}
+
+func TestFileMenuEscapeReturnsToNormalModeWithCursorOnLastInsertedCharacter(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {{name: "notes.txt", kind: fileMenuRegularFile}},
+	}}
+
+	model = updateFileMenuWithKeys(model,
+		runeKey('f'), runeKey('l'), runeKey('l'), runeKey('i'), runeKey('X'), tea.KeyMsg{Type: tea.KeyEsc},
+	)
+
+	if model.fileMenuMode != fileMenuNormalMode || model.fileMenuNameCursor != 2 {
+		t.Fatalf("mode = %v cursor = %d, want normal mode with cursor 2", model.fileMenuMode, model.fileMenuNameCursor)
+	}
+	_, _, cursorColor := model.fileMenuEntryPresentation(model.fileMenuEntries[model.fileMenuCursor])
+	wantCursor := lipgloss.NewStyle().
+		Foreground(cursorColor).
+		Reverse(true).
+		Render("X")
+	if tree := model.renderFileTree(); !strings.Contains(tree, wantCursor) {
+		t.Fatalf("normal-mode cursor is not rendered on the last inserted character: %q", tree)
 	}
 }
 
@@ -980,6 +1010,30 @@ func TestFileMenuCreateWithTrailingSlashStagesDirectory(t *testing.T) {
 	}
 }
 
+func TestFileMenuEditingPendingFileWithTrailingSlashConvertsItToDirectory(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{".": {}}}
+
+	model = updateFileMenuWithKeys(model,
+		runeKey('f'), runeKey('o'), runeKey('d'), runeKey('i'), runeKey('r'), tea.KeyMsg{Type: tea.KeyEsc},
+		runeKey('A'), runeKey('/'), tea.KeyMsg{Type: tea.KeyEsc},
+	)
+
+	if len(model.fileMenuOperations) != 1 {
+		t.Fatalf("staged operations = %#v, want one converted creation", model.fileMenuOperations)
+	}
+	operation := model.fileMenuOperations[0]
+	if operation.kind != fileMenuCreateDirectory || operation.destination != "dir" || operation.entryKind != fileMenuDirectory {
+		t.Fatalf("converted operation = %#v, want create directory dir", operation)
+	}
+	if len(model.fileMenuEntries) != 1 || model.fileMenuEntries[0].kind != fileMenuDirectory {
+		t.Fatalf("visible entries = %#v, want pending directory", model.fileMenuEntries)
+	}
+	if tree := model.renderFileTree(); !strings.Contains(tree, "dir/") {
+		t.Fatalf("converted directory does not keep its trailing slash in the tree: %q", tree)
+	}
+}
+
 func TestFileMenuDeleteStagesVisualSelection(t *testing.T) {
 	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
 	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
@@ -1073,7 +1127,7 @@ func TestFileMenuPendingCopiesAreYellowAndNewEntriesAreGreen(t *testing.T) {
 		runeKey('o'), runeKey('n'), runeKey('e'), runeKey('w'), runeKey('.'), runeKey('t'), runeKey('x'), runeKey('t'), tea.KeyMsg{Type: tea.KeyEnter},
 	)
 	view = model.View()
-	greenName := lipgloss.NewStyle().Foreground(model.styles.FileMenuAddedColor).Reverse(true).Render("n")
+	greenName := lipgloss.NewStyle().Foreground(model.styles.FileMenuAddedColor).Reverse(true).Render("t")
 	if !strings.Contains(view, greenName) {
 		t.Fatalf("pending new entry is not rendered in green: %q", view)
 	}
@@ -1184,6 +1238,42 @@ func TestFileMenuOEditsNewEntryInlineInsideEmptyDirectory(t *testing.T) {
 	}
 	if view := model.View(); !strings.Contains(view, "notes.txt") || !strings.Contains(view, "pending change") {
 		t.Fatalf("new buffered entry disappeared after escape: %q", view)
+	}
+}
+
+func TestFileMenuEmptyDirectoryKeepsNormalCursorAndIStartsCreatingAFile(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".":     {{name: "empty", kind: fileMenuDirectory}},
+		"empty": {},
+	}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), tea.KeyMsg{Type: tea.KeyEnter})
+	wantCursor := lipgloss.NewStyle().
+		Foreground(model.styles.FileMenuFileColor).
+		Reverse(true).
+		Render(" ")
+	if tree := model.renderFileTree(); !strings.Contains(tree, wantCursor) {
+		t.Fatalf("empty directory has no normal-mode cursor: %q", tree)
+	}
+
+	model = updateFileMenuWithKeys(model, runeKey('i'))
+	if model.fileMenuMode != fileMenuInsertMode || model.fileMenuInputAction != fileMenuCreateInput {
+		t.Fatalf("i in empty directory entered mode %v action %v, want create insert mode", model.fileMenuMode, model.fileMenuInputAction)
+	}
+	for _, value := range "notes.txt" {
+		model = updateFileMenuWithKeys(model, runeKey(value))
+	}
+	model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyEsc})
+
+	if len(model.fileMenuOperations) != 1 || model.fileMenuOperations[0].kind != fileMenuCreateFile || model.fileMenuOperations[0].destination != "empty/notes.txt" {
+		t.Fatalf("pending operations = %#v, want create empty/notes.txt", model.fileMenuOperations)
 	}
 }
 
