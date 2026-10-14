@@ -12,13 +12,17 @@ func TestSystemFileMenuTrashUsesNativeMoverWithoutFinderAutomation(t *testing.T)
 		t.Fatal(err)
 	}
 	var movedPath string
-	trash := systemFileMenuTrash{move: func(path string) error {
+	trash := systemFileMenuTrash{move: func(path string) (string, error) {
 		movedPath = path
-		return nil
+		return "/trash/discard.txt", nil
 	}}
 
-	if err := trash.Move(path); err != nil {
+	destination, err := trash.Move(path)
+	if err != nil {
 		t.Fatalf("Move() error = %v", err)
+	}
+	if destination != "/trash/discard.txt" {
+		t.Fatalf("Move() destination = %q, want trash destination", destination)
 	}
 	if movedPath != path {
 		t.Fatalf("native mover path = %q, want %q", movedPath, path)

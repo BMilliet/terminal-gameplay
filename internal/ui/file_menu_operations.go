@@ -19,6 +19,7 @@ const (
 	fileMenuVisualMode
 	fileMenuCommandMode
 	fileMenuProcessingMode
+	fileMenuConfirmDeleteMode
 )
 
 type fileMenuInputAction int
@@ -56,9 +57,10 @@ type fileMenuOperator interface {
 }
 
 type fileMenuApplyResult struct {
-	completed int
-	err       error
-	progress  fileMenuOperationProgress
+	completed           int
+	completedOperations []fileMenuOperation
+	err                 error
+	progress            fileMenuOperationProgress
 }
 
 type fileMenuOperationProgress struct {
@@ -91,7 +93,7 @@ func (p fileMenuOperationProgress) ratio() float64 {
 }
 
 type fileMenuTrash interface {
-	Move(path string) error
+	Move(path string) (string, error)
 }
 
 type osFileMenuOperator struct {
@@ -107,7 +109,9 @@ func (o osFileMenuOperator) Apply(operations []fileMenuOperation, report func(fi
 		totalItems:      int64(len(operations)),
 		totalOperations: len(operations),
 	}
-	for index, operation := range operations {
+	completedOperations := make([]fileMenuOperation, 0, len(operations))
+	for index, stagedOperation := range operations {
+		operation := stagedOperation
 		progress.kind = operation.kind
 		progress.operation = index + 1
 		progress.currentFile = fileMenuOperationName(operation)
@@ -117,30 +121,31 @@ func (o osFileMenuOperator) Apply(operations []fileMenuOperation, report func(fi
 		if operation.kind == fileMenuCopy {
 			source, err := o.resolve(operation.source)
 			if err != nil {
-				return fileMenuApplyResult{completed: index, err: err, progress: progress}
+				return fileMenuApplyResult{completed: index, completedOperations: completedOperations, err: err, progress: progress}
 			}
 			items, countErr := countFileMenuCopyItems(source)
 			if countErr != nil {
-				return fileMenuApplyResult{completed: index, err: fmt.Errorf("inspect copy source %q: %w", operation.source, countErr), progress: progress}
+				return fileMenuApplyResult{completed: index, completedOperations: completedOperations, err: fmt.Errorf("inspect copy source %q: %w", operation.source, countErr), progress: progress}
 			}
 			progress.totalItems += items - 1
 		}
 		reportFileMenuProgress(report, progress)
 
 		doneItemsBefore := progress.doneItems
-		if err := o.apply(operation, &progress, report); err != nil {
-			return fileMenuApplyResult{completed: index, err: err, progress: progress}
+		if err := o.apply(&operation, &progress, report); err != nil {
+			return fileMenuApplyResult{completed: index, completedOperations: completedOperations, err: err, progress: progress}
 		}
+		completedOperations = append(completedOperations, operation)
 		if progress.doneItems == doneItemsBefore {
 			progress.doneItems++
 		}
 		progress.doneBytes = progress.totalBytes
 		reportFileMenuProgress(report, progress)
 	}
-	return fileMenuApplyResult{completed: len(operations), progress: progress}
+	return fileMenuApplyResult{completed: len(operations), completedOperations: completedOperations, progress: progress}
 }
 
-func (o osFileMenuOperator) apply(operation fileMenuOperation, progress *fileMenuOperationProgress, report func(fileMenuOperationProgress)) error {
+func (o osFileMenuOperator) apply(operation *fileMenuOperation, progress *fileMenuOperationProgress, report func(fileMenuOperationProgress)) error {
 	source, err := o.resolve(operation.source)
 	if err != nil && operation.source != "" {
 		return err
@@ -206,9 +211,11 @@ func (o osFileMenuOperator) apply(operation fileMenuOperation, progress *fileMen
 		if trasher == nil {
 			trasher = systemFileMenuTrash{}
 		}
-		if trashErr := trasher.Move(source); trashErr != nil {
+		trashDestination, trashErr := trasher.Move(source)
+		if trashErr != nil {
 			return fmt.Errorf("move %q to trash: %w (use D for permanent deletion)", operation.source, trashErr)
 		}
+		operation.destination = trashDestination
 		return nil
 	default:
 		return fmt.Errorf("unknown file operation %d", operation.kind)

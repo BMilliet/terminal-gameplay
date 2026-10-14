@@ -88,6 +88,7 @@ type MultiPageViewModel struct {
 	fileMenuPinnedPlaces   []fileMenuPlace
 	fileMenuHomePlaces     []fileMenuPlace
 	fileMenuProtectedPaths []string
+	fileMenuTrashPath      string
 	fileMenuPlacesCursor   int
 	fileMenuPlacesError    error
 	fileMenuPreview        fileMenuPreview
@@ -98,6 +99,7 @@ type MultiPageViewModel struct {
 	fileMenuInputAction    fileMenuInputAction
 	fileMenuInputSource    string
 	fileMenuInputKind      fileMenuEntryKind
+	fileMenuInputPending   bool
 	fileMenuCommand        string
 	fileMenuPendingKey     string
 	fileMenuStatus         string
@@ -108,6 +110,10 @@ type MultiPageViewModel struct {
 	fileMenuProgress       fileMenuOperationProgress
 	fileMenuProcessState   fileMenuProcessState
 	fileMenuQuitAfterWrite bool
+	fileMenuConfirmEntries []fileMenuEntry
+	fileMenuConfirmCursor  int
+	fileMenuConfirmCommand string
+	fileMenuSessionChanges map[string]fileMenuSessionChangeKind
 	frequentList           []utils.ListItem
 	goToList               []utils.ListItem
 	scriptList             []utils.ListItem
@@ -197,6 +203,7 @@ func NewMultiPageViewModel(config *utils.ConfigDTO, features *settings.FeaturesD
 		currentPage:            currentPage,
 		fileMenuRoot:           ".",
 		fileMenuPath:           ".",
+		fileMenuSessionChanges: make(map[string]fileMenuSessionChangeKind),
 		frequentList:           frequentList,
 		goToList:               gototab.BuildList(config.GoTo),
 		scriptList:             scripts.BuildList(config.Scripts),

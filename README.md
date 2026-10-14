@@ -175,7 +175,15 @@ Filesystem changes in the file menu follow an Oil/Vim-inspired staged workflow:
   the change is written; navigate to another directory and press `p` to turn
   the pending deletion into a move. Pasting in the original directory restores
   the line. Writing an unpasted `dd` moves the entry to the operating-system
-  trash. `D` stages an explicit permanent deletion instead.
+  trash. `D` stages an explicit permanent deletion instead. Inside the Trash
+  location, `dd` and `D` stage a permanent deletion instead of trying to move
+  the entry into Trash again. Submitting `:w`, `:x`, or `:wq` then opens a
+  confirmation dialog before any filesystem operation starts. The dialog
+  selects **no** by default; press `y` to confirm and apply the write.
+- Copying one directory with `yy` and `p` copies its complete recursive contents
+  and immediately opens the destination name for editing. When pasted beside
+  the source, the original unchanged name remains a visible draft but blocks
+  `:w` until a unique destination name is chosen.
 - `:w` applies all pending filesystem operations immediately. `:x` and `:wq`
   apply them and exit after a successful save. `:q!` discards pending changes
   and exits. `Esc` leaves Insert mode while keeping typed edits, and cancels
@@ -188,6 +196,13 @@ published only after success. Moves use a fast rename on the same filesystem
 and automatically fall back to copy-then-delete across filesystems. If a batch
 fails, completed operations are removed from the pending list while the failed
 operation and the remainder stay staged for a safe retry.
+
+After a successful save, entries changed during the current `tg` session stay
+marked in the file tree: `A` identifies files and directories that were added
+or copied, while `M` identifies renamed, moved, or trashed entries at their new
+location. The markers survive directory navigation and reset when the
+application exits. The lower Memory panel keeps a fixed height and truncates
+large clipboard lists with an ellipsis.
 
 Trash integration moves entries directly into the filesystem trash on macOS,
 uses `gio trash` or `trash-put` on Linux, and uses the Recycle Bin on Windows.

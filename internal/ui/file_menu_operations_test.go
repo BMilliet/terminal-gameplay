@@ -10,16 +10,17 @@ import (
 )
 
 type fakeFileMenuTrash struct {
-	paths []string
-	err   error
+	paths       []string
+	destination string
+	err         error
 }
 
-func (f *fakeFileMenuTrash) Move(path string) error {
+func (f *fakeFileMenuTrash) Move(path string) (string, error) {
 	f.paths = append(f.paths, path)
 	if f.err != nil {
-		return f.err
+		return "", f.err
 	}
-	return os.RemoveAll(path)
+	return f.destination, os.RemoveAll(path)
 }
 
 func TestOSFileMenuOperatorAppliesStagedOperationsInsideRoot(t *testing.T) {
@@ -174,7 +175,8 @@ func TestOSFileMenuOperatorMovesAcrossFilesystemsByCopyingThenDeleting(t *testin
 
 func TestOSFileMenuOperatorUsesTrashUnlessDeleteIsPermanent(t *testing.T) {
 	root := t.TempDir()
-	trasher := &fakeFileMenuTrash{}
+	trashDestination := filepath.Join(root, ".Trash", "trashed.txt")
+	trasher := &fakeFileMenuTrash{destination: trashDestination}
 	operator := osFileMenuOperator{root: root, trash: trasher}
 	trashed := filepath.Join(root, "trashed.txt")
 	permanent := filepath.Join(root, "permanent.txt")
@@ -194,6 +196,9 @@ func TestOSFileMenuOperatorUsesTrashUnlessDeleteIsPermanent(t *testing.T) {
 	}
 	if len(trasher.paths) != 1 || trasher.paths[0] != trashed {
 		t.Fatalf("trash paths = %#v, want only %q", trasher.paths, trashed)
+	}
+	if len(result.completedOperations) != 2 || result.completedOperations[0].destination != trashDestination {
+		t.Fatalf("completed operations = %#v, want reported trash destination %q", result.completedOperations, trashDestination)
 	}
 	if _, err := os.Stat(permanent); !os.IsNotExist(err) {
 		t.Fatalf("permanent deletion left file behind or returned unexpected error: %v", err)

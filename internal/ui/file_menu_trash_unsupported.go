@@ -7,6 +7,6 @@ import (
 	"runtime"
 )
 
-func moveFileMenuPathToTrash(_ string) error {
-	return fmt.Errorf("trash is not supported on %s", runtime.GOOS)
+func moveFileMenuPathToTrash(_ string) (string, error) {
+	return "", fmt.Errorf("trash is not supported on %s", runtime.GOOS)
 }

@@ -8,7 +8,7 @@ import (
 )
 
 type systemFileMenuTrash struct {
-	move func(string) error
+	move func(string) (string, error)
 }
 
 func (systemFileMenuTrash) Directory() (string, error) {
@@ -39,17 +39,17 @@ func fileMenuTrashDirectory(goos, home, dataHome string) (string, error) {
 	}
 }
 
-func (t systemFileMenuTrash) Move(path string) error {
+func (t systemFileMenuTrash) Move(path string) (string, error) {
 	return t.movePath(path)
 }
 
-func (t systemFileMenuTrash) movePath(path string) error {
+func (t systemFileMenuTrash) movePath(path string) (string, error) {
 	absolutePath, err := filepath.Abs(path)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if _, err := os.Lstat(absolutePath); err != nil {
-		return err
+		return "", err
 	}
 	mover := t.move
 	if mover == nil {

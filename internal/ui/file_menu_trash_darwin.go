@@ -14,18 +14,19 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func moveFileMenuPathToTrash(path string) error {
+func moveFileMenuPathToTrash(path string) (string, error) {
 	trashDirectory, err := darwinFileMenuTrashDirectory(path)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := os.MkdirAll(trashDirectory, 0o700); err != nil {
-		return fmt.Errorf("create trash directory %q: %w", trashDirectory, err)
+		return "", fmt.Errorf("create trash directory %q: %w", trashDirectory, err)
 	}
-	if _, err := moveFileMenuPathToTrashDirectory(path, trashDirectory); err != nil {
-		return fmt.Errorf("move to trash directory %q: %w", trashDirectory, err)
+	destination, err := moveFileMenuPathToTrashDirectory(path, trashDirectory)
+	if err != nil {
+		return "", fmt.Errorf("move to trash directory %q: %w", trashDirectory, err)
 	}
-	return nil
+	return destination, nil
 }
 
 func darwinFileMenuTrashDirectory(path string) (string, error) {

@@ -229,7 +229,7 @@ func TestFileMenuShowsPlacesTreeAndPreviewPanels(t *testing.T) {
 	}
 }
 
-func TestFileMenuTrashPlaceOpensProtectedRootAndAllowsPermanentContentDeletion(t *testing.T) {
+func TestFileMenuTrashDeletionRequiresConfirmationAndBecomesPermanent(t *testing.T) {
 	trashDirectory := "/Users/test/.Trash"
 	reader := &fakeCurrentDirectoryReader{
 		homeDirectory:  "/Users/test",
@@ -261,9 +261,66 @@ func TestFileMenuTrashPlaceOpensProtectedRootAndAllowsPermanentContentDeletion(t
 		t.Fatalf("Trash entries = %#v, want obsolete.bin", model.fileMenuEntries)
 	}
 
-	model = updateFileMenuWithKeys(model, runeKey('D'))
+	model = updateFileMenuWithKeys(model, runeKey('d'), runeKey('d'))
+	if model.fileMenuMode != fileMenuNormalMode || len(model.fileMenuOperations) != 1 || !model.fileMenuOperations[0].permanent {
+		t.Fatalf("Trash deletion was not staged permanently: mode=%v operations=%#v", model.fileMenuMode, model.fileMenuOperations)
+	}
+	model = updateFileMenuWithKeys(model, runeKey(':'), runeKey('w'), tea.KeyMsg{Type: tea.KeyEnter})
+	if model.fileMenuMode != fileMenuConfirmDeleteMode {
+		t.Fatalf("Trash write did not open confirmation: mode=%v", model.fileMenuMode)
+	}
+	confirmation := model.View()
+	for _, text := range []string{"Delete permanently?", "obsolete.bin", "yes", "no", "cannot be undone"} {
+		if !strings.Contains(confirmation, text) {
+			t.Errorf("confirmation popup does not contain %q: %q", text, confirmation)
+		}
+	}
+
+	model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyEnter})
+	if model.fileMenuMode != fileMenuNormalMode || len(model.fileMenuOperations) != 1 {
+		t.Fatalf("cancelled Trash deletion changed state: mode=%v operations=%#v", model.fileMenuMode, model.fileMenuOperations)
+	}
+
+	model = updateFileMenuWithKeys(model, runeKey(':'), runeKey('w'))
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(MultiPageViewModel)
+	if cmd != nil || model.fileMenuMode != fileMenuConfirmDeleteMode {
+		t.Fatalf("confirmed write preparation mode=%v cmd=%v, want confirmation without filesystem command", model.fileMenuMode, cmd)
+	}
+	updated, cmd = model.Update(runeKey('y'))
+	model = updated.(MultiPageViewModel)
+	if cmd == nil || model.fileMenuMode != fileMenuProcessingMode {
+		t.Fatalf("confirmed Trash write mode=%v cmd=%v, want processing command", model.fileMenuMode, cmd)
+	}
 	if len(model.fileMenuOperations) != 1 || !model.fileMenuOperations[0].permanent || model.fileMenuOperations[0].source != "/Users/test/.Trash/obsolete.bin" {
 		t.Fatalf("Trash content operation = %#v, want permanent deletion", model.fileMenuOperations)
+	}
+}
+
+func TestFileMenuTrashVisualDeletionStagesPermanentOperationsUntilWrite(t *testing.T) {
+	trashDirectory := "/Users/test/.Trash"
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentMenu = FileMenu
+	model.fileMenuPath = trashDirectory
+	model.fileMenuRoot = trashDirectory
+	model.fileMenuTrashPath = trashDirectory
+	model.fileMenuEntries = []fileMenuEntry{
+		{name: "one.txt", kind: fileMenuRegularFile},
+		{name: "two.txt", kind: fileMenuRegularFile},
+	}
+	model.fileMenuMode = fileMenuVisualMode
+	model.fileMenuVisualAnchor = 0
+	model.fileMenuCursor = 1
+
+	updated, _ := model.Update(runeKey('d'))
+	model = updated.(MultiPageViewModel)
+	if model.fileMenuMode != fileMenuNormalMode || len(model.fileMenuOperations) != 2 {
+		t.Fatalf("visual Trash deletion mode=%v operations=%#v, want two staged operations", model.fileMenuMode, model.fileMenuOperations)
+	}
+	for _, operation := range model.fileMenuOperations {
+		if !operation.permanent {
+			t.Fatalf("visual Trash deletion operation = %#v, want permanent", operation)
+		}
 	}
 }
 
@@ -983,9 +1040,9 @@ func TestFileMenuWriteAppliesStagedChangesWithoutExtraConfirmation(t *testing.T)
 	if len(model.fileMenuEntries) != 1 || model.fileMenuEntries[0].name != "new.txt" || model.fileMenuEntries[0].pending {
 		t.Fatalf("saved entry did not return to its normal state: %#v", model.fileMenuEntries)
 	}
-	defaultName := lipgloss.NewStyle().Foreground(model.styles.FileMenuFileColor).Reverse(true).Render("n")
-	if view := model.View(); !strings.Contains(view, defaultName) {
-		t.Fatalf("saved entry did not return to its default color: %q", view)
+	addedName := lipgloss.NewStyle().Foreground(model.styles.FileMenuAddedColor).Reverse(true).Render("n")
+	if view := model.View(); !strings.Contains(view, addedName) || !strings.Contains(view, "A ") {
+		t.Fatalf("saved entry does not show its current-session added state: %q", view)
 	}
 }
 
@@ -1054,6 +1111,12 @@ func TestFileMenuFailureRemovesCompletedOperationsAndKeepsRetryableRemainder(t *
 	}
 	if !strings.Contains(model.fileMenuStatus, "saved 1") || !strings.Contains(model.fileMenuStatus, "2 pending") {
 		t.Fatalf("status = %q, want partial completion details", model.fileMenuStatus)
+	}
+	if change, ok := model.fileMenuSessionChanges["created.txt"]; !ok || change != fileMenuSessionAdded {
+		t.Fatalf("completed creation session change = %v, %v; want added", change, ok)
+	}
+	if _, ok := model.fileMenuSessionChanges["copy.txt"]; ok {
+		t.Fatal("failed copy was marked as changed in the current session")
 	}
 }
 
@@ -1140,6 +1203,162 @@ func TestFileMenuRendersProcessMetadataAndMemoryPanels(t *testing.T) {
 		if !strings.Contains(view, text) {
 			t.Errorf("lower panels do not contain %q: %q", text, view)
 		}
+	}
+}
+
+func TestFileMenuMemoryPanelKeepsFixedHeightWithLargeClipboard(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.terminalWidth = 120
+	for index := range 30 {
+		model.fileMenuClipboard = append(model.fileMenuClipboard, fileMenuClipboardEntry{
+			path: fmt.Sprintf("/a/very/long/path/to/file-%02d.txt", index),
+		})
+	}
+
+	panels := model.renderFileMenuBottomPanels()
+	wantHeight := fileMenuBottomBoxHeight + 2
+	if got := lipgloss.Height(panels); got != wantHeight {
+		t.Fatalf("bottom panels height = %d, want fixed height %d:\n%s", got, wantHeight, panels)
+	}
+	if !strings.Contains(panels, "…") {
+		t.Fatalf("large Memory panel does not show truncation marker: %q", panels)
+	}
+}
+
+func TestFileMenuMarksFilesChangedDuringCurrentSessionAfterSave(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {
+			{name: "created.txt", kind: fileMenuRegularFile},
+			{name: "renamed.txt", kind: fileMenuRegularFile},
+		},
+	}}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+	model.fileMenuMode = fileMenuProcessingMode
+	model.fileMenuOperations = []fileMenuOperation{
+		{kind: fileMenuCreateFile, destination: "created.txt", entryKind: fileMenuRegularFile},
+		{kind: fileMenuMove, source: "original.txt", destination: "renamed.txt", entryKind: fileMenuRegularFile},
+	}
+
+	model.finishFileMenuOperations(fileMenuApplyResult{completed: 2})
+	tree := model.renderFileTree()
+	for _, expectation := range []struct {
+		name   string
+		marker string
+	}{
+		{name: "created.txt", marker: "A "},
+		{name: "renamed.txt", marker: "M "},
+	} {
+		var matchingLine string
+		for _, line := range strings.Split(tree, "\n") {
+			if strings.Contains(line, expectation.name) {
+				matchingLine = line
+				break
+			}
+		}
+		if !strings.Contains(matchingLine, expectation.marker) {
+			t.Errorf("tree line for %s = %q, want session marker %q", expectation.name, matchingLine, expectation.marker)
+		}
+	}
+}
+
+func TestFileMenuMarksTrashedFileAtItsTrashDestination(t *testing.T) {
+	trashDirectory := "/Users/test/.Trash"
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".":            {},
+		trashDirectory: {{name: "removed.txt", kind: fileMenuRegularFile}},
+	}}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+	model.fileMenuMode = fileMenuProcessingMode
+	model.fileMenuOperations = []fileMenuOperation{{kind: fileMenuDelete, source: "removed.txt"}}
+
+	model.finishFileMenuOperations(fileMenuApplyResult{
+		completed: 1,
+		completedOperations: []fileMenuOperation{{
+			kind:        fileMenuDelete,
+			source:      "removed.txt",
+			destination: trashDirectory + "/removed.txt",
+		}},
+	})
+	if !model.loadFileMenuDirectory(trashDirectory) {
+		t.Fatal("failed to open fake Trash directory")
+	}
+
+	var removedLine string
+	for _, line := range strings.Split(model.renderFileTree(), "\n") {
+		if strings.Contains(line, "removed.txt") {
+			removedLine = line
+			break
+		}
+	}
+	if !strings.Contains(removedLine, "M ") {
+		t.Fatalf("trashed file line = %q, want current-session moved marker", removedLine)
+	}
+}
+
+func TestFileMenuDirectoryPasteEditsDestinationAndRejectsOriginalName(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {{name: "docs", kind: fileMenuDirectory}},
+	}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('y'), runeKey('y'), runeKey('p'))
+	if model.fileMenuMode != fileMenuInsertMode || model.fileMenuInput != "docs" {
+		t.Fatalf("paste mode = %v input = %q, want directory name editing", model.fileMenuMode, model.fileMenuInput)
+	}
+	if len(model.fileMenuOperations) != 1 {
+		t.Fatalf("operations = %#v, want one directory copy", model.fileMenuOperations)
+	}
+	operation := model.fileMenuOperations[0]
+	if operation.kind != fileMenuCopy || operation.source != "docs" || operation.destination != "docs" || operation.entryKind != fileMenuDirectory {
+		t.Fatalf("copy operation = %#v, want recursive docs destination draft", operation)
+	}
+
+	model = updateFileMenuWithKeys(model, tea.KeyMsg{Type: tea.KeyEnter})
+	if model.fileMenuMode != fileMenuNormalMode || !strings.Contains(model.fileMenuStatus, "new name") {
+		t.Fatalf("unchanged duplicate draft did not leave a write-blocking warning: mode=%v status=%q", model.fileMenuMode, model.fileMenuStatus)
+	}
+
+	model = updateFileMenuWithKeys(model,
+		runeKey('i'),
+		tea.KeyMsg{Type: tea.KeyCtrlU},
+		runeKey('d'), runeKey('o'), runeKey('c'), runeKey('s'), runeKey('-'), runeKey('c'), runeKey('o'), runeKey('p'), runeKey('y'),
+		tea.KeyMsg{Type: tea.KeyEnter},
+	)
+	if model.fileMenuMode != fileMenuNormalMode {
+		t.Fatalf("renamed paste mode = %v, want normal", model.fileMenuMode)
+	}
+	if got := model.fileMenuOperations[0].destination; got != "docs-copy" {
+		t.Fatalf("copy destination = %q, want edited docs-copy", got)
+	}
+}
+
+func TestFileMenuWriteRejectsDirectoryCopyWithUnchangedDestination(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentMenu = FileMenu
+	model.fileMenuMode = fileMenuCommandMode
+	model.fileMenuCommand = "w"
+	model.fileMenuOperations = []fileMenuOperation{{
+		kind:        fileMenuCopy,
+		source:      "docs",
+		destination: "docs",
+		entryKind:   fileMenuDirectory,
+	}}
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(MultiPageViewModel)
+	if cmd != nil || model.fileMenuMode != fileMenuNormalMode {
+		t.Fatalf("invalid copy started writing: mode=%v cmd=%v", model.fileMenuMode, cmd)
+	}
+	if !strings.Contains(model.fileMenuStatus, "rename copied directory") {
+		t.Fatalf("status = %q, want rename requirement", model.fileMenuStatus)
 	}
 }
 
