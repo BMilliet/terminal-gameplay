@@ -22,6 +22,14 @@ make lint
 Never report a development task as complete while formatting, tests, or lint
 are failing.
 
+## README scope
+
+Keep the README focused on general information about the application, including
+its purpose, main capabilities, installation, and essential configuration. It
+does not need to document every interaction, key binding, layout detail,
+implementation detail, or edge case. Prefer the interface itself, focused
+documentation, and tests for detailed behavior.
+
 ## Test isolation
 
 Unit tests must exercise behavior through abstractions and must not perform real

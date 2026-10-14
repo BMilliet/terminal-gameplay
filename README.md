@@ -105,185 +105,21 @@ source ~/.config/fish/config.fish
 
 ## Usage
 
-Simply run:
+Run `tg` to open the interactive interface:
 
 ```bash
 tg
 ```
 
-This will launch the interactive TUI where you can:
+The quick menu provides access to saved directories, scripts, notes,
+environment variables, aliases, settings, and search tools. The file menu
+offers an editable file tree with previews and a Vim-inspired workflow for
+staging filesystem changes before applying them.
 
-1. **Navigate** using arrow keys or `j`/`k`
-2. **Switch pages** using left/right arrows or `h`/`l`
-3. **Search** by pressing `/` to activate fuzzy-find mode
-4. **Open the file menu** by pressing `f`
-5. **Select** an item by pressing Enter
-
-The existing pages and lists form the **quick-menu**, which is shown when `tg`
-starts. Pressing `f` from the quick-menu opens the file menu. The file menu is
-shown below the application header without the quick-menu pages. It has three
-side-by-side panels: Places on the left, the editable file tree in the center,
-and a preview of the selected item on the right. Directories show a reduced
-tree of up to 16 immediate children, while text files show a sanitized preview
-of up to 4 KiB and 16 lines. Truncated previews end with `…`, and binary files
-are identified without printing their raw contents. Directories, regular files,
-executables, and image files use distinct colors. Use `↑`/`↓` or `j`/`k`
-to move between entries, `gg` to jump to the first entry, and `Shift+G` to jump
-to the last entry. The active entry has a Vim-style block cursor inside its
-name; move it with `h`/`l`, `0`/`$`, or `Home`/`End`. An empty directory keeps
-the cursor on a blank editable line instead of losing the Normal-mode cursor.
-Press `Enter` on a directory to show its contents, or on a text file to open it with `nvim`.
-Binary files and other non-text formats remain selected and show a warning
-instead of opening. Press `→` as another option for entering the selected
-directory; unlike `Enter`, it does nothing on files. Press `←` to return to the
-previous directory; at the directory where `tg` started, `←` does nothing.
-
-The Places panel has a **Pinned** section for the directory where `tg` was
-started and a **Home** section with fixed `Downloads`, `Desktop`, `Documents`,
-and `Trash` shortcuts. `Trash` is shown when the platform exposes its recycle
-area as a navigable filesystem directory. It never lists disks or mounted
-volumes. In Normal mode,
-press `Space`+`←` to focus Places and `Space`+`→` to return to the file tree.
-Inside Places, use `j`/`k` or the vertical arrows and press `Enter` to open the
-selected location. The pinned starting directory remains editable, while the
-three Home shortcuts themselves cannot be renamed, moved, or deleted. Each
-shortcut becomes the navigation root, so the file tree cannot move above it.
-Their contents remain fully editable: files and subdirectories can be created,
-renamed, moved, pasted, or deleted with the normal staged workflow. The border
-and mode label indicate which panel currently has focus.
-
-Filesystem changes in the file menu follow an Oil/Vim-inspired staged workflow:
-
-- `o` inserts a new editable line directly in the tree, including inside an
-  empty directory. End the name with `/` to create a directory. Pressing `Esc`
-  leaves the new entry buffered for `:w`; an empty line is discarded.
-- `i` edits before the normal-mode cursor and `a` edits after it. `I` starts at
-  the beginning of the name and `A` starts at the end, matching Vim. `Ctrl+U`
-  clears the name, which is useful when moving or renaming it. In Insert mode,
-  move the inline block cursor with `←`/`→`, `Home`, and `End`; `Backspace` and
-  `Delete` edit around its current position. In an empty directory, these edit
-  keys start a new entry. Leaving Insert mode returns the block cursor to the
-  last inserted character. Adding `/` while editing a pending new file changes
-  that staged creation into a directory.
-- `Shift+V` enters Visual Line mode (`v` is also accepted). Extend the selection
-  with `j`/`k` or the arrow keys, then press `y` to copy, `m` to mark for moving,
-  `d` to cut the selected entries, or `D` to stage permanent deletion. The
-  active line uses a block cursor, while the other selected lines use selection
-  markers.
-- In Normal mode, `yy`, `mm`, and `dd` act on the current entry. Like Vim,
-  `dd` keeps the entry in the register. Its line remains as a red ghost until
-  the change is written; navigate to another directory and press `p` to turn
-  the pending deletion into a move. Pasting in the original directory restores
-  the line. Writing an unpasted `dd` moves the entry to the operating-system
-  trash. `D` stages an explicit permanent deletion instead. Inside the Trash
-  location, `dd` and `D` stage a permanent deletion instead of trying to move
-  the entry into Trash again. Submitting `:w`, `:x`, or `:wq` then opens a
-  confirmation dialog before any filesystem operation starts. The dialog
-  selects **no** by default; press `y` to confirm and apply the write.
-- Copying one directory with `yy` and `p` copies its complete recursive contents
-  and immediately opens the destination name for editing. When pasted beside
-  the source, the original unchanged name remains a visible draft but blocks
-  `:w` until a unique destination name is chosen.
-- `:w` applies all pending filesystem operations immediately. `:x` and `:wq`
-  apply them and exit after a successful save. `:q!` discards pending changes
-  and exits. `Esc` leaves Insert mode while keeping typed edits, and cancels
-  Visual or Command mode.
-
-Copy, move, and delete batches run in the background and report the current
-file, completed item count, byte-level progress for large files, and a visual
-gradient progress bar. Copies are assembled under a temporary destination and
-published only after success. Moves use a fast rename on the same filesystem
-and automatically fall back to copy-then-delete across filesystems. If a batch
-fails, completed operations are removed from the pending list while the failed
-operation and the remainder stay staged for a safe retry.
-
-After a successful save, entries changed during the current `tg` session stay
-marked in the file tree: `A` identifies files and directories that were added
-or copied, while `M` identifies renamed, moved, or trashed entries at their new
-location. The markers survive directory navigation and reset when the
-application exits. The lower Memory panel keeps a fixed height and truncates
-large clipboard lists with an ellipsis.
-
-Trash integration moves entries directly into the filesystem trash on macOS,
-uses `gio trash` or `trash-put` on Linux, and uses the Recycle Bin on Windows.
-The macOS backend does not launch or automate Finder (or any other app), keeps
-external-volume entries on their original volume, and preserves colliding
-names. If no supported trash backend is available, the save fails without
-removing the source; use `D` only when permanent deletion is intended.
-
-No create, copy, move, or delete operation touches the filesystem before a
-write command. Copying beside the source automatically adds a `-copy` suffix.
-Pending deletions appear in red, copies and move destinations in yellow, and
-new entries in green. All return to their regular file-type color after a
-successful save. Edited paths are constrained to the directory where `tg`
-started.
-
-Below the file tree and preview, three compact panels provide live context:
-
-- **Process** shows an animated progress bar while `:w` applies filesystem
-  operations. Saves run asynchronously, so long copies or recursive directory
-  deletions do not freeze the TUI.
-- **Metadata** shows the selected entry's name, size, permissions, and last
-  modification time.
-- **Memory** lists the paths currently held in the Vim-style register by `yy`,
-  `dd`, or a Visual mode operation. Long registers are truncated to fit the
-  panel.
-
-The file-system mode fills the terminal height by default. Its upper panels use
-the remaining vertical space and keep a fixed size while navigating between
-directories with different numbers of entries. Long trees scroll within that
-fixed viewport with five lines of context around the active block cursor. The
-layout is recalculated only when the terminal itself is resized.
-
-The preview is constrained to exactly the same inner width and height as the
-file-tree panel. Long names and content lines are truncated before rendering,
-then excess lines are clipped, preventing terminal wrapping from changing the
-height of either main panel. A final post-render limit also measures the boxes
-after wrapping, padding, colors, and borders have been applied; overflow is
-removed while preserving the bottom border.
-
-In the `env` tab, press `a`, enter the key (such as `FOO`), then enter its value
-(such as `123`). The list shows each saved value and its `active`/`inactive`
-state. Press Enter on an env key to toggle that state. Active keys are exported
-to the current shell and inherited by scripts; inactive keys are unset.
-
-The `env` feature can be enabled or disabled under `settings` → `features`.
-Disabling it hides the tab and unsets every managed key without deleting the
-saved values or their active/inactive states.
-
-The `alias` tab follows the same workflow. Press `a`, enter the alias word
-(such as `cat`), then enter the command it should execute (such as `bat`).
-The list shows each command and its state. Enter toggles the alias, and `dd`
-removes it. The feature can be enabled or disabled under `settings` → `features`.
-
-### Fuzzy Find Search
-
-Press `/` to activate the fuzzy-find search mode. This feature allows you to quickly filter items by typing:
-
-- **Type to search**: Characters you type will fuzzy-match against both item labels and values
-- **Visual feedback**: Matching characters are highlighted in yellow with dark text for easy reading
-- **Exit search**: Press `Esc` to close the search and return to normal navigation
-- **Select from results**: Use arrow keys to navigate filtered results and Enter to select
-
-The fuzzy-find searches through both the item title/label and its value, making it easy to find what you need quickly.
-
-### File and Workspace Fuzzy Search
-
-The `tools` page includes two file-system search actions:
-
-- **fuzzy search** scans the current directory
-- **workspace fuzzy search** scans the directory configured by the `WORKSPACE` environment variable
-
-Both actions are ready for typing as soon as they open. The scan and fuzzy
-selection run in Go and skip `.git`, `.build`, `node_modules`, `.next`, `dist`,
-`build`, `Pods`, `.dart_tool`, `vendor`, and `target` directories. Selecting a
-directory changes the current shell directory; selecting a file opens it with
-`$EDITOR`, falling back to `nvim` when `EDITOR` is unset.
-
-Use only `↑`/`↓` to navigate the results without leaving the filter input. All
-printable characters, including `h`, `j`, `k`, and `l`, remain part of the
-search text. Use `←`/`→` to navigate result pages. You can continue typing
-immediately after moving the selection or changing pages.
+Navigation works with the arrow keys or Vim-style keys. Use the prompts and
+mode labels shown in the interface for the commands available in each context.
+Filesystem and workspace searches can open files or change the current shell
+directory through the configured shell integration.
 
 ### Configuration File
 
@@ -321,9 +157,8 @@ treated as active. The same shorthand is accepted for aliases.
 
 Script descriptions live in `config.json`; the Lua files themselves are stored in `~/.terminal-gameplay/scripts`.
 
-#### Visual Dividers
-
-You can organize your lists with visual dividers to separate items into sections. Use keys starting with `div` (e.g., `div`, `div1`, `div2`, etc.) to create dividers:
+Keys starting with `div` can be used to group related items with visual
+dividers:
 
 ```json
 {
@@ -338,9 +173,3 @@ You can organize your lists with visual dividers to separate items into sections
   }
 }
 ```
-
-**Features:**
-- Dividers are displayed as subtle horizontal separators with italic text
-- They cannot be selected - navigation automatically skips them
-- Use any text after `div` key to identify different dividers (since JSON doesn't allow duplicate keys)
-- Great for grouping related items visually
