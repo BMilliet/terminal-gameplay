@@ -29,6 +29,8 @@ type fakeCurrentDirectoryReader struct {
 	fileContentsByPath     map[string][]byte
 	fileTruncatedByPath    map[string]bool
 	metadataByPath         map[string]fileMenuMetadata
+	trashDirectory         string
+	trashDirectoryErr      error
 	calls                  []string
 	directoryPreviewCalls  []directoryPreviewCall
 	filePreviewCalls       []filePreviewCall
@@ -45,14 +47,24 @@ type filePreviewCall struct {
 }
 
 type fakeFileMenuOperator struct {
-	batches [][]fileMenuOperation
-	err     error
+	batches  [][]fileMenuOperation
+	result   fileMenuApplyResult
+	progress []fileMenuOperationProgress
 }
 
-func (f *fakeFileMenuOperator) Apply(operations []fileMenuOperation) error {
+func (f *fakeFileMenuOperator) Apply(operations []fileMenuOperation, report func(fileMenuOperationProgress)) fileMenuApplyResult {
 	batch := append([]fileMenuOperation(nil), operations...)
 	f.batches = append(f.batches, batch)
-	return f.err
+	for _, progress := range f.progress {
+		if report != nil {
+			report(progress)
+		}
+	}
+	result := f.result
+	if result.err == nil && result.completed == 0 {
+		result.completed = len(operations)
+	}
+	return result
 }
 
 func updateFileMenuWithKeys(model MultiPageViewModel, keys ...tea.KeyMsg) MultiPageViewModel {
@@ -98,6 +110,16 @@ func (f *fakeCurrentDirectoryReader) WorkingDirectory() (string, error) {
 		return "/workspace/project", nil
 	}
 	return f.workingDirectory, nil
+}
+
+func (f *fakeCurrentDirectoryReader) TrashDirectory() (string, error) {
+	if f.trashDirectoryErr != nil {
+		return "", f.trashDirectoryErr
+	}
+	if f.trashDirectory == "" {
+		return "/Users/test/.Trash", nil
+	}
+	return f.trashDirectory, nil
 }
 
 func TestHeaderShowsAppVersion(t *testing.T) {
@@ -172,7 +194,7 @@ func TestFileMenuShowsPlacesTreeAndPreviewPanels(t *testing.T) {
 	if !threeBoxesOnOneLine {
 		t.Fatalf("file menu does not render places, tree, and preview side by side: %q", view)
 	}
-	for _, label := range []string{"Pinned", "project", "Home", "Downloads", "Desktop", "Documents"} {
+	for _, label := range []string{"Pinned", "project", "Home", "Downloads", "Desktop", "Documents", "Trash", "♻"} {
 		if !strings.Contains(view, label) {
 			t.Errorf("places panel does not contain %q: %q", label, view)
 		}
@@ -204,6 +226,44 @@ func TestFileMenuShowsPlacesTreeAndPreviewPanels(t *testing.T) {
 
 	if directoryIndex, fileIndex := strings.Index(view, "assets/"), strings.Index(view, "notes.txt"); directoryIndex < 0 || fileIndex < 0 || directoryIndex > fileIndex {
 		t.Fatalf("directory should be shown before files: %q", view)
+	}
+}
+
+func TestFileMenuTrashPlaceOpensProtectedRootAndAllowsPermanentContentDeletion(t *testing.T) {
+	trashDirectory := "/Users/test/.Trash"
+	reader := &fakeCurrentDirectoryReader{
+		homeDirectory:  "/Users/test",
+		trashDirectory: trashDirectory,
+		entriesByPath: map[string][]fileMenuEntry{
+			".":            {{name: "project", kind: fileMenuDirectory}},
+			trashDirectory: {{name: "obsolete.bin", kind: fileMenuRegularFile}},
+		},
+	}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+
+	model = updateFileMenuWithKeys(
+		model,
+		runeKey('f'),
+		runeKey(' '), tea.KeyMsg{Type: tea.KeyLeft},
+		tea.KeyMsg{Type: tea.KeyDown}, tea.KeyMsg{Type: tea.KeyDown},
+		tea.KeyMsg{Type: tea.KeyDown}, tea.KeyMsg{Type: tea.KeyDown},
+		tea.KeyMsg{Type: tea.KeyEnter},
+	)
+
+	if model.fileMenuPath != trashDirectory || model.fileMenuRoot != trashDirectory {
+		t.Fatalf("path = %q, root = %q; want Trash rooted at %q", model.fileMenuPath, model.fileMenuRoot, trashDirectory)
+	}
+	if !model.isFileMenuProtectedPath(trashDirectory) {
+		t.Fatalf("Trash shortcut %q is not protected", trashDirectory)
+	}
+	if len(model.fileMenuEntries) != 1 || model.fileMenuEntries[0].name != "obsolete.bin" {
+		t.Fatalf("Trash entries = %#v, want obsolete.bin", model.fileMenuEntries)
+	}
+
+	model = updateFileMenuWithKeys(model, runeKey('D'))
+	if len(model.fileMenuOperations) != 1 || !model.fileMenuOperations[0].permanent || model.fileMenuOperations[0].source != "/Users/test/.Trash/obsolete.bin" {
+		t.Fatalf("Trash content operation = %#v, want permanent deletion", model.fileMenuOperations)
 	}
 }
 
@@ -906,7 +966,7 @@ func TestFileMenuWriteAppliesStagedChangesWithoutExtraConfirmation(t *testing.T)
 	if model.fileMenuMode != fileMenuProcessingMode || cmd == nil {
 		t.Fatalf(":w did not start background processing directly: mode=%v cmd=%v", model.fileMenuMode, cmd)
 	}
-	if view := model.View(); !strings.Contains(view, "running") {
+	if view := model.View(); !strings.Contains(view, "Creating new.txt") {
 		t.Fatalf("process panel does not show active work: %q", view)
 	}
 	finished := cmd()
@@ -926,6 +986,90 @@ func TestFileMenuWriteAppliesStagedChangesWithoutExtraConfirmation(t *testing.T)
 	defaultName := lipgloss.NewStyle().Foreground(model.styles.FileMenuFileColor).Reverse(true).Render("n")
 	if view := model.View(); !strings.Contains(view, defaultName) {
 		t.Fatalf("saved entry did not return to its default color: %q", view)
+	}
+}
+
+func TestFileMenuWriteRendersSPFStyleProgressUpdates(t *testing.T) {
+	previousProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previousProfile)
+	})
+
+	operator := &fakeFileMenuOperator{progress: []fileMenuOperationProgress{{
+		kind:        fileMenuCopy,
+		currentFile: "archive.tar",
+		doneItems:   1,
+		totalItems:  4,
+	}}}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{".": {}}}
+	model.fileMenuOperator = operator
+	model.currentMenu = FileMenu
+	model.fileMenuOperations = []fileMenuOperation{{kind: fileMenuCopy, source: "archive.tar", destination: "archive-copy.tar"}}
+	model.fileMenuMode = fileMenuCommandMode
+	model.fileMenuCommand = "w"
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(MultiPageViewModel)
+	if cmd == nil {
+		t.Fatal(":w command = nil, want progress command")
+	}
+	updated, next := model.Update(cmd())
+	model = updated.(MultiPageViewModel)
+	if next == nil {
+		t.Fatal("progress update did not schedule the next operation message")
+	}
+	view := model.renderFileMenuProcessPanel(34)
+	for _, want := range []string{"Processes", "Copying archive.tar", "1/4", "25%", "█", "░", "󰥔"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("process panel does not contain %q: %q", want, view)
+		}
+	}
+
+	updated, _ = model.Update(next())
+	model = updated.(MultiPageViewModel)
+	if model.fileMenuMode != fileMenuNormalMode {
+		t.Fatalf("file menu mode = %v, want normal after completion", model.fileMenuMode)
+	}
+}
+
+func TestFileMenuFailureRemovesCompletedOperationsAndKeepsRetryableRemainder(t *testing.T) {
+	reader := &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {{name: "created.txt", kind: fileMenuRegularFile}},
+	}}
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = reader
+	model.fileMenuMode = fileMenuProcessingMode
+	model.fileMenuOperations = []fileMenuOperation{
+		{kind: fileMenuCreateFile, destination: "created.txt"},
+		{kind: fileMenuCopy, source: "source.txt", destination: "copy.txt"},
+		{kind: fileMenuDelete, source: "old.txt"},
+	}
+
+	model.finishFileMenuOperations(fileMenuApplyResult{completed: 1, err: fmt.Errorf("copy failed")})
+
+	if len(model.fileMenuOperations) != 2 || model.fileMenuOperations[0].destination != "copy.txt" {
+		t.Fatalf("pending operations = %#v, want only failed and remaining operations", model.fileMenuOperations)
+	}
+	if !strings.Contains(model.fileMenuStatus, "saved 1") || !strings.Contains(model.fileMenuStatus, "2 pending") {
+		t.Fatalf("status = %q, want partial completion details", model.fileMenuStatus)
+	}
+}
+
+func TestFileMenuUppercaseDStagesPermanentDelete(t *testing.T) {
+	model := NewMultiPageViewModel(&utils.ConfigDTO{}, &settings.FeaturesDTO{})
+	model.currentDirectoryReader = &fakeCurrentDirectoryReader{entriesByPath: map[string][]fileMenuEntry{
+		".": {{name: "obsolete.bin", kind: fileMenuRegularFile}},
+	}}
+
+	model = updateFileMenuWithKeys(model, runeKey('f'), runeKey('D'))
+
+	if len(model.fileMenuOperations) != 1 || model.fileMenuOperations[0].kind != fileMenuDelete || !model.fileMenuOperations[0].permanent {
+		t.Fatalf("operations = %#v, want one permanent delete", model.fileMenuOperations)
+	}
+	if !strings.Contains(model.fileMenuStatus, "permanent") {
+		t.Fatalf("status = %q, want permanent deletion warning", model.fileMenuStatus)
 	}
 }
 

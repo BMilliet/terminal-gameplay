@@ -139,8 +139,10 @@ directory; unlike `Enter`, it does nothing on files. Press `←` to return to th
 previous directory; at the directory where `tg` started, `←` does nothing.
 
 The Places panel has a **Pinned** section for the directory where `tg` was
-started and a **Home** section with the fixed `Downloads`, `Desktop`, and
-`Documents` shortcuts. It never lists disks or mounted volumes. In Normal mode,
+started and a **Home** section with fixed `Downloads`, `Desktop`, `Documents`,
+and `Trash` shortcuts. `Trash` is shown when the platform exposes its recycle
+area as a navigable filesystem directory. It never lists disks or mounted
+volumes. In Normal mode,
 press `Space`+`←` to focus Places and `Space`+`→` to return to the file tree.
 Inside Places, use `j`/`k` or the vertical arrows and press `Enter` to open the
 selected location. The pinned starting directory remains editable, while the
@@ -165,17 +167,34 @@ Filesystem changes in the file menu follow an Oil/Vim-inspired staged workflow:
   that staged creation into a directory.
 - `Shift+V` enters Visual Line mode (`v` is also accepted). Extend the selection
   with `j`/`k` or the arrow keys, then press `y` to copy, `m` to mark for moving,
-  or `d` to cut the selected entries. The active line uses a block cursor, while
-  the other selected lines use selection markers.
+  `d` to cut the selected entries, or `D` to stage permanent deletion. The
+  active line uses a block cursor, while the other selected lines use selection
+  markers.
 - In Normal mode, `yy`, `mm`, and `dd` act on the current entry. Like Vim,
   `dd` keeps the entry in the register. Its line remains as a red ghost until
   the change is written; navigate to another directory and press `p` to turn
   the pending deletion into a move. Pasting in the original directory restores
-  the line.
+  the line. Writing an unpasted `dd` moves the entry to the operating-system
+  trash. `D` stages an explicit permanent deletion instead.
 - `:w` applies all pending filesystem operations immediately. `:x` and `:wq`
   apply them and exit after a successful save. `:q!` discards pending changes
   and exits. `Esc` leaves Insert mode while keeping typed edits, and cancels
   Visual or Command mode.
+
+Copy, move, and delete batches run in the background and report the current
+file, completed item count, byte-level progress for large files, and a visual
+gradient progress bar. Copies are assembled under a temporary destination and
+published only after success. Moves use a fast rename on the same filesystem
+and automatically fall back to copy-then-delete across filesystems. If a batch
+fails, completed operations are removed from the pending list while the failed
+operation and the remainder stay staged for a safe retry.
+
+Trash integration moves entries directly into the filesystem trash on macOS,
+uses `gio trash` or `trash-put` on Linux, and uses the Recycle Bin on Windows.
+The macOS backend does not launch or automate Finder (or any other app), keeps
+external-volume entries on their original volume, and preserves colliding
+names. If no supported trash backend is available, the save fails without
+removing the source; use `D` only when permanent deletion is intended.
 
 No create, copy, move, or delete operation touches the filesystem before a
 write command. Copying beside the source automatically adds a `-copy` suffix.
